@@ -74,6 +74,8 @@ describe('WeeklyHoursEditor', () => {
     const { user, queryClient } = renderWithProviders(<CapacityGrid from="2025-12-29" to="2026-01-09" />)
     const otherRange = getGetCapacityQueryKey({ from: '2026-03-02', to: '2026-03-13' })
     queryClient.setQueryData(otherRange, grid())
+    const search = getGetCapacityQueryKey({ from: '2025-12-29', to: '2026-01-09', q: 'ana' })
+    queryClient.setQueryData(search, { ...grid(), people: grid().people.slice(0, 1) })
 
     const input = await openEditor(user)
     await user.type(input, '40{Enter}')
@@ -92,10 +94,12 @@ describe('WeeklyHoursEditor', () => {
     expect(calls.patch).toEqual([{ weeklyHours: 40 }])
     // The revalidation was asked for but has not answered: the new numbers came from the save itself.
     expect(calls.get).toBe(2)
-    // Every cached range is patched, not only the one on screen; other people are left alone.
+    // Every cached range and name search is patched, not only the one on screen; other people are left alone.
     const other = queryClient.getQueryData<Grid>(otherRange)!
     expect(other.people[0]!.weeks.map((w) => w.capacityHours)).toEqual([40, 40])
     expect(other.people[1]!.weeklyHours).toBe(32)
+    const searched = queryClient.getQueryData<Grid>(search)!
+    expect(searched.people[0]!.weeks.map((w) => w.capacityHours)).toEqual([40, 40])
   })
 
   it('keeps the typed value and the grid on a failed save, and saves on retry', async () => {
