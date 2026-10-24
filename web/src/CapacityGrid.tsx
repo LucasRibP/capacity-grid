@@ -1,4 +1,4 @@
-import { CircleAlert, LoaderCircle, Users } from 'lucide-react'
+import { CircleAlert, LoaderCircle, SearchX, Users } from 'lucide-react'
 
 import type { ApiError } from '@/api/http'
 import { useCapacity } from '@/api/useCapacity'
@@ -10,12 +10,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 type Props = {
   from: string
   to: string
+  /** Name search; '' or absent shows everyone. */
+  q?: string
+  onClearSearch?: () => void
 }
 
 // CapacityGrid renders one row per person and one column per week, showing how allocated each person is and
 // making over-allocation obvious.
-export function CapacityGrid({ from, to }: Props) {
-  const { data, error, isPending, isPlaceholderData, refetch } = useCapacity({ from, to })
+export function CapacityGrid({ from, to, q = '', onClearSearch }: Props) {
+  const { data, error, isPending, isPlaceholderData, refetch } = useCapacity({ from, to, q })
 
   return (
     <section aria-label="Capacity by person and week" className="flex flex-col gap-3">
@@ -40,7 +43,13 @@ export function CapacityGrid({ from, to }: Props) {
       )}
       {isPending && <GridSkeleton />}
       {data &&
-        (data.people.length === 0 ? <EmptyGrid /> : <GridTable grid={data} busy={isPlaceholderData} />)}
+        (data.people.length > 0 ? (
+          <GridTable grid={data} busy={isPlaceholderData} />
+        ) : q ? (
+          <NoMatches q={q} onClear={onClearSearch} />
+        ) : (
+          <EmptyGrid />
+        ))}
     </section>
   )
 }
@@ -97,6 +106,23 @@ function EmptyGrid() {
       <Users aria-hidden className="size-6 text-muted-foreground" />
       <p className="font-medium">No people to plan yet</p>
       <p className="text-sm text-muted-foreground">People appear here once they're added to the team.</p>
+    </div>
+  )
+}
+
+function NoMatches({ q, onClear }: { q: string; onClear: (() => void) | undefined }) {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center">
+      <SearchX aria-hidden className="size-6 text-muted-foreground" />
+      <p className="font-medium">No one matches “{q}”</p>
+      <p className="text-sm text-muted-foreground">
+        Check the spelling, or search for part of a first or last name.
+      </p>
+      {onClear && (
+        <Button variant="outline" size="sm" onClick={onClear}>
+          Clear search
+        </Button>
+      )}
     </div>
   )
 }
