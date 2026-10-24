@@ -91,7 +91,7 @@ func newHandler(s oapi.StrictServerInterface) (http.Handler, error) {
 			BaseURL:    "/api",
 			BaseRouter: mux,
 			ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-				writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
+				writeError(w, http.StatusBadRequest, "validation_failed", paramMessage(err))
 			},
 		},
 	)
@@ -134,6 +134,9 @@ func validationMessage(err error) string {
 			field = strings.Join(ptr, ".")
 		}
 		reason = schemaErr.Reason
+		if schemaErr.SchemaField == "format" && schemaErr.Schema != nil && schemaErr.Schema.Format == "date" {
+			reason = dateReason
+		}
 	case reqErr != nil && reqErr.Reason != "":
 		reason = reqErr.Reason
 	case reqErr != nil && reqErr.Err != nil:
@@ -144,6 +147,22 @@ func validationMessage(err error) string {
 		return reason
 	}
 	return field + ": " + reason
+}
+
+// dateReason replaces the date-format regex kin-openapi would otherwise show the manager.
+const dateReason = "must be a date in YYYY-MM-DD format"
+
+// paramMessage covers parameters that pass the spec's pattern but fail to bind, e.g. 2026-02-30.
+// The only formatted parameters are dates and the path id, so the reason is chosen by name.
+func paramMessage(err error) string {
+	var formatErr *oapi.InvalidParamFormatError
+	if !errors.As(err, &formatErr) {
+		return err.Error()
+	}
+	if formatErr.ParamName == "id" {
+		return "id: must be a positive whole number"
+	}
+	return formatErr.ParamName + ": " + dateReason
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
