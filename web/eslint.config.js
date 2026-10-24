@@ -68,6 +68,16 @@ export default defineConfig([
     },
   },
   {
+    // shadcn/ui components are copied in by the CLI and kept as upstream ships them: they export cva variants next
+    // to the component, and Calendar passes its slot components inline to react-day-picker.
+    files: ['src/components/ui/**'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+      'react-x/no-nested-component-definitions': 'off',
+      'max-lines-per-function': 'off',
+    },
+  },
+  {
     files: ['**/*.d.ts'],
     rules: { '@typescript-eslint/consistent-type-definitions': 'off' }, // declaration merging needs interface
   },
