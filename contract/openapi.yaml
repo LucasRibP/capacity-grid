@@ -123,11 +123,18 @@ components:
       properties:
         code:
           type: string
-          description: Machine-readable, e.g. validation_failed, range_too_large, not_found, internal.
+          enum: [validation_failed, range_too_large, not_found, internal]
+          description: >-
+            Machine-readable. validation_failed: a parameter or the body breaks the contract or a rule
+            (400). range_too_large: the requested range covers more than 13 weeks (400). not_found: no
+            such route or person (404). internal: the server failed (500).
           example: validation_failed
         message:
           type: string
-          description: Human-readable, safe to show to a manager.
+          description: >-
+            Human-readable and safe to show to a manager: one short line, lowercase start, no trailing
+            period. Usually `field: reason`, e.g. `weeklyHours: number must be at most 168`.
+          example: "weeklyHours: number must be at most 168"
 
     Health:
       type: object

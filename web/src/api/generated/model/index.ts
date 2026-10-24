@@ -12,6 +12,7 @@
 
 export * from './capacityGrid';
 export * from './error';
+export * from './errorCode';
 export * from './errorResponse';
 export * from './getCapacityParams';
 export * from './health';

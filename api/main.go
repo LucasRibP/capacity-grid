@@ -81,18 +81,18 @@ func newHandler(s oapi.StrictServerInterface) (http.Handler, error) {
 	oapi.HandlerWithOptions(
 		oapi.NewStrictHandlerWithOptions(s, nil, oapi.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-				writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
+				writeError(w, http.StatusBadRequest, oapi.ValidationFailed, err.Error())
 			},
 			ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
 				log.Printf("handler error: %v", err)
-				writeError(w, http.StatusInternalServerError, "internal", "Something went wrong. Try again.")
+				writeError(w, http.StatusInternalServerError, oapi.Internal, "something went wrong, try again")
 			},
 		}),
 		oapi.StdHTTPServerOptions{
 			BaseURL:    "/api",
 			BaseRouter: mux,
 			ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-				writeError(w, http.StatusBadRequest, "validation_failed", paramMessage(err))
+				writeError(w, http.StatusBadRequest, oapi.ValidationFailed, paramMessage(err))
 			},
 		},
 	)
@@ -100,9 +100,9 @@ func newHandler(s oapi.StrictServerInterface) (http.Handler, error) {
 	validate := middleware.OapiRequestValidatorWithOptions(spec, &middleware.Options{
 		SilenceServersWarning: true,
 		ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, _ *http.Request, opts middleware.ErrorHandlerOpts) {
-			code := "validation_failed"
+			code := oapi.ValidationFailed
 			if opts.StatusCode == http.StatusNotFound {
-				code = "not_found"
+				code = oapi.NotFound
 			}
 			writeError(w, opts.StatusCode, code, validationMessage(err))
 		},
@@ -121,54 +121,85 @@ func (s *server) GetHealth(ctx context.Context, _ oapi.GetHealthRequestObject) (
 }
 
 // validationMessage turns a kin-openapi error (multi-line, schema dump included) into one line a
-// manager can read, e.g. "weeklyHours: number must be at most 168".
+// manager can read, in the form "field: reason", e.g. "weeklyHours: number must be at most 168".
+// Errors about the body as a whole (missing, not JSON, unknown property) use "body" as the field.
 func validationMessage(err error) string {
-	field := ""
+	var schemaErr *openapi3.SchemaError
+	if errors.As(err, &schemaErr) {
+		return schemaMessage(err, schemaErr)
+	}
+
+	var reqErr *openapi3filter.RequestError
+	if !errors.As(err, &reqErr) {
+		return err.Error()
+	}
+	switch {
+	case reqErr.Parameter != nil && errors.Is(reqErr.Err, openapi3filter.ErrInvalidRequired):
+		return reqErr.Parameter.Name + ": " + requiredReason
+	case reqErr.Parameter != nil:
+		// The value has the wrong type for the parameter, e.g. id=abc or an id beyond int64.
+		return reqErr.Parameter.Name + ": " + paramReason(reqErr.Parameter.Name)
+	case reqErr.RequestBody != nil && errors.Is(reqErr.Err, openapi3filter.ErrInvalidRequired):
+		return "body: " + requiredReason
+	case reqErr.RequestBody != nil && reqErr.Err != nil:
+		return "body: must be valid JSON"
+	case reqErr.RequestBody != nil:
+		return "body: must be sent as application/json"
+	case reqErr.Reason != "":
+		return reqErr.Reason
+	default:
+		return err.Error()
+	}
+}
+
+// schemaMessage names the offending field: the JSON pointer inside the body, else the parameter,
+// else the body itself (e.g. an unknown property).
+func schemaMessage(err error, schemaErr *openapi3.SchemaError) string {
+	field := "body"
 	var reqErr *openapi3filter.RequestError
 	if errors.As(err, &reqErr) && reqErr.Parameter != nil {
 		field = reqErr.Parameter.Name
 	}
-
-	reason := err.Error()
-	var schemaErr *openapi3.SchemaError
-	switch {
-	case errors.As(err, &schemaErr):
-		if ptr := schemaErr.JSONPointer(); len(ptr) > 0 {
-			field = strings.Join(ptr, ".")
-		}
-		reason = schemaErr.Reason
-		if schemaErr.SchemaField == "format" && schemaErr.Schema != nil && schemaErr.Schema.Format == "date" {
-			reason = dateReason
-		}
-	case reqErr != nil && reqErr.Reason != "":
-		reason = reqErr.Reason
-	case reqErr != nil && reqErr.Err != nil:
-		reason = reqErr.Err.Error()
+	if ptr := schemaErr.JSONPointer(); len(ptr) > 0 {
+		field = strings.Join(ptr, ".")
 	}
 
-	if field == "" {
-		return reason
+	reason := schemaErr.Reason
+	switch {
+	case schemaErr.SchemaField == "required":
+		reason = requiredReason // instead of `property "weeklyHours" is missing` after the field name
+	case schemaErr.SchemaField == "format" && schemaErr.Schema != nil && schemaErr.Schema.Format == "date":
+		reason = dateReason
 	}
 	return field + ": " + reason
 }
 
-// dateReason replaces the date-format regex kin-openapi would otherwise show the manager.
-const dateReason = "must be a date in YYYY-MM-DD format"
+const (
+	// requiredReason matches what kin-openapi says for a missing parameter, so all "missing" errors read alike.
+	requiredReason = "value is required but missing"
+	// dateReason replaces the date-format regex kin-openapi would otherwise show the manager.
+	dateReason = "must be a date in YYYY-MM-DD format"
+)
 
 // paramMessage covers parameters that pass the spec's pattern but fail to bind, e.g. 2026-02-30.
-// The only formatted parameters are dates and the path id, so the reason is chosen by name.
 func paramMessage(err error) string {
 	var formatErr *oapi.InvalidParamFormatError
 	if !errors.As(err, &formatErr) {
 		return err.Error()
 	}
-	if formatErr.ParamName == "id" {
-		return "id: must be a positive whole number"
-	}
-	return formatErr.ParamName + ": " + dateReason
+	return formatErr.ParamName + ": " + paramReason(formatErr.ParamName)
 }
 
-func writeError(w http.ResponseWriter, status int, code, message string) {
+// paramReason explains a parameter value of the wrong type. The only typed parameters are dates
+// and the path id, so the reason is chosen by name.
+func paramReason(name string) string {
+	if name == "id" {
+		return "must be a positive whole number"
+	}
+	return dateReason
+}
+
+func writeError(w http.ResponseWriter, status int, code oapi.ErrorCode, message string) {
 	writeJSON(w, status, oapi.Error{Code: code, Message: message})
 }
 
