@@ -3,6 +3,7 @@ import { CircleAlert, LoaderCircle, SearchX, Users } from 'lucide-react'
 import type { ApiError } from '@/api/http'
 import { useCapacity } from '@/api/useCapacity'
 import { GridTable } from '@/capacity/GridTable'
+import { useSearchPending } from '@/capacity/useSearchParam'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,7 +19,13 @@ type Props = {
 // CapacityGrid renders one row per person and one column per week, showing how allocated each person is and
 // making over-allocation obvious.
 export function CapacityGrid({ from, to, q = '', onClearSearch }: Props) {
-  const { data, error, isPending, isPlaceholderData, refetch } = useCapacity({ from, to, q })
+  // Neighbouring weeks are prefetched once the grid settles, but not while a search is still being typed: the
+  // query is about to change and those requests would be thrown away.
+  const searchPending = useSearchPending()
+  const { data, error, isPending, isPlaceholderData, refetch } = useCapacity(
+    { from, to, q },
+    { prefetchNeighbours: !searchPending },
+  )
 
   return (
     <section aria-label="Capacity by person and week" className="flex flex-col gap-3">

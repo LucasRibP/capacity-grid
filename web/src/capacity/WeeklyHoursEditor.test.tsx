@@ -36,11 +36,15 @@ function grid(): Grid {
   }
 }
 
-/** Answers the first GET; every later one (the background revalidation) never answers. */
+/**
+ * Answers the first GET for the range on screen; every later one (the background revalidation) never answers.
+ * Prefetches of the neighbouring weeks are answered and not counted.
+ */
 function serveGridOnce() {
   const calls = { get: 0, patch: [] as UpdatePerson[] }
   server.use(
-    http.get('*/capacity', async () => {
+    http.get('*/capacity', async ({ request }) => {
+      if (new URL(request.url).searchParams.get('from') !== '2025-12-29') return HttpResponse.json(grid())
       calls.get += 1
       if (calls.get > 1) await delay('infinite')
       return HttpResponse.json(grid())

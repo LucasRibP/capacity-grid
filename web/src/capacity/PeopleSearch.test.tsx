@@ -12,12 +12,15 @@ import { SEARCH_DEBOUNCE_MS } from './PeopleSearch'
 
 const range = '?from=2025-12-29&to=2026-01-11'
 
-/** Every capacity request's `q` ('' when absent), in order. */
+/** The `q` ('' when absent) of every capacity request for the range on screen, in order. Prefetches of the
+ * neighbouring weeks are left out. */
 function recordSearches() {
   const searches: string[] = []
   const onRequest = ({ request }: { request: Request }) => {
     const url = new URL(request.url)
-    if (url.pathname.endsWith('/capacity')) searches.push(url.searchParams.get('q') ?? '')
+    if (url.pathname.endsWith('/capacity') && url.searchParams.get('from') === '2025-12-29') {
+      searches.push(url.searchParams.get('q') ?? '')
+    }
   }
   server.events.on('request:start', onRequest)
   return searches
