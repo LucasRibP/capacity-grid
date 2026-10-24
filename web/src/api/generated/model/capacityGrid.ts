@@ -18,6 +18,9 @@ export interface CapacityGrid {
   to: string;
   /** Monday of each week, ascending. Column headers for the grid. */
   weeks: string[];
-  /** Every person, ordered by name then id, including people with no allocation. */
+  /**
+     * Every person matching `q` (everyone without `q`), including people with no allocation. Ordered by name
+     * then id, or by relevance first when `q` is given.
+     */
   people: PersonCapacity[];
 }
