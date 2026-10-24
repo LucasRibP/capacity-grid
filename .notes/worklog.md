@@ -26,3 +26,23 @@ left unfinished. Append as you go; a line or two per entry is right.
   never changes allocations, so patching is exact. With more time: optimistic save with rollback for
   responsiveness.
 - **No concurrency control**: last write wins. No `updated_at`/version column and the schema is fixed.
+
+## Frontend
+
+- **Grid cells are fill bars (#5)**, chosen by the human from three GitHub-style options: each person-week is a bar
+  filled to allocated / capacity, labelled "allocated / capacity". Over-allocation is red, striped, has a warning
+  icon and reads "over by N h" to screen readers, so it never depends on color. Any allocation on zero capacity
+  is over (Eli Nakamura); 0 / 0 is neutral. No division happens when capacity is 0.
+- **UI kit: shadcn/ui on Tailwind 4**, at the human's request. The compose `web` service runs `npm install` on
+  start, so new dependencies need no change to the run environment. Gotcha: `cn()` merges Tailwind classes, so a
+  custom utility named `bg-*` is dropped next to a `bg-<color>` class. The stripes utility is called `stripes`.
+- **Rows are virtualized** (`@tanstack/react-virtual`): production has a few thousand people and pagination is
+  deferred. jsdom has no layout, so `src/test/setup.ts` gives elements an 800 px client box. Without it the
+  virtualizer renders no rows in tests.
+- **Late responses**: the query is keyed by range with `keepPreviousData`, so an old range's response lands in
+  its own cache entry and never replaces the grid on screen; leaving a range aborts its request through the
+  signal the generated client forwards. A test makes the old range answer last and checks the grid.
+- **Tests run in `America/Sao_Paulo`** (`vite.config.ts` `test.env`), where parsing `YYYY-MM-DD` with `new Date`
+  shows the previous day, so that class of bug fails in CI.
+- The embedded browser in the desktop app blocks service workers, so MSW can't run there. To check against mocks,
+  `window.fetch` was patched from the console with `buildCapacityGrid` from `src/api/mocks/capacity.ts`.
