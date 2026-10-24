@@ -168,3 +168,31 @@ left unfinished. Append as you go; a line or two per entry is right.
   (A bind mount from the macOS temp dir did not work under Colima.)
 - The shared stack on :8080 still runs a pre-#12 image (`not_implemented`), so comparisons were made against a
   throwaway build of `origin/main` on :8083.
+
+## Row virtualization (#8)
+
+- Rows were already virtualized since #5 (`@tanstack/react-virtual`, 44 px rows, overscan 10). What #8 still needed
+  was the editor: scrolling its row out of view unmounted it and dropped a save in flight, its error and the
+  typed value.
+- **A row whose editor is open stays mounted.** `WeeklyHoursEditor` reports open/close; `GridTable` adds those
+  rows to the virtualizer's range (`rangeExtractor`) and puts a spacer `<tr>` in each gap. The editor cannot close
+  mid-save and only closes on success or cancel, so "open" covers pending and failed. Focus inside the popover
+  survives too. Chosen over lifting editor and mutation state out of the row: that meant changing
+  `useUpdateWeeklyHours` (shared with the #19 work) or tracking one mutation per person by hand.
+- Measured with 3,000 people × 13 weeks (`src/test/largeGrid.ts`, and `fetch` patched in the embedded browser):
+
+  | | rows in DOM | cells | jsdom render |
+  |---|---|---|---|
+  | All rows (virtualizer forced to render every index) | 3,000 | 39,000 | ~27 s |
+  | Virtualized, jsdom (800 px box) | 29 | 377 | ~0.4 s |
+  | Virtualized, browser (590 px scroller) | 24 | 312 | |
+  | Browser, scrolled to row 2,000 with an editor open on row 1 | 35 (34 + the editing row) | | |
+
+  With the real API (500 people, 3 weeks): 24 rows. Sticky header and name column hold at row 2,000 and with a
+  horizontal scroll.
+- Left as is: a focused trigger (not an open editor) still loses focus to `body` if a mouse scroll takes its row
+  out of view; Tab and keyboard scrolling keep it in view, so only the mouse case is affected. Also, the id of a
+  person who leaves the grid while their editor is open (e.g. filtered out by search) stays in the editing set;
+  it maps to no row, so it costs nothing until that person comes back, where their row stays mounted until the
+  editor is opened and closed.
+- The shared stack on :8080 still serves the pre-#12 stub, so the browser check used `api/` from `main` on :8081.
