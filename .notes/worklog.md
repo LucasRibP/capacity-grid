@@ -128,3 +128,23 @@ left unfinished. Append as you go; a line or two per entry is right.
   property. Missing body properties say `weeklyHours: value is required but missing`, the same words kin-openapi uses
   for a missing parameter. Messages without one field keep plain wording: the 13-week limit, `no person with id 9`,
   `something went wrong, try again` (500), and the router's 404s.
+
+## Frontend: name search (#19)
+
+- **The input is never debounced, only the query.** `PeopleSearch` keeps its own text and writes the trimmed value to
+  `?q=` after 300 ms of quiet; clearing (the ✕, Escape, or "Clear search" in the empty grid) applies at once. When
+  the URL changes without typing (back button, the empty state's button) the box follows it.
+- **`q` is written with `replaceState`, the range with `pushState`.** One history entry per pause in typing would
+  bury the back button; a search reads as a filter on the current page. Range navigation keeps whatever `q` is set.
+  Both params now share one URL store (`lib/locationSearch.ts`).
+- **A blank search is left out of the query params**, so the unfiltered grid keeps its single `['/capacity',
+  {from, to}]` cache entry. The post-save patch already matched every `['/capacity', …]` key, searched ones included;
+  a test now proves it through the UI.
+- **"No one matches “q”" is a different state from "No people to plan yet"**, with a button to clear the search.
+- The MSW handler filters by `q` roughly like the contract (folds case and accents with NFD plus a few letters NFD
+  leaves alone, every term a substring, word-start matches first). Søren Hagen was added to the mock people to match
+  the issue's example.
+- Browser check was partial: the embedded browser blocks MSW's service worker, and the shared stack on :8080
+  answered `501 not_implemented` for `/api/capacity` (an image older than `main`). The network log still showed one
+  `GET /api/capacity?…&q=soren+hag` after typing nine characters, and `q` in the URL. Rows against the real search
+  are to be checked once #18 lands.
