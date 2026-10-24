@@ -18,6 +18,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // A negative UTC offset, where `new Date('YYYY-MM-DD')` shows the previous day: date bugs fail here.
+    env: { TZ: 'America/Sao_Paulo' },
     setupFiles: ['src/test/setup.ts'],
     passWithNoTests: true,
   },
