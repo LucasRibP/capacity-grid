@@ -70,3 +70,17 @@ left unfinished. Append as you go; a line or two per entry is right.
 - Ids above the 32-bit `serial` range return 404 (they cannot exist) rather than a 500 from parameter encoding.
 - Verified on the shared database: PATCH Eli Nakamura to 37.5 → `GET /api/capacity` (the #2 branch) showed 37.5 in
   every week with allocations unchanged; then restored to 0.
+
+## Error codes and messages (review follow-up to #12 and #13)
+
+- **`Error.code` is an enum in the contract:** `validation_failed`, `range_too_large`, `not_found`, `internal`.
+  Those are the only codes the API emits (`not_implemented` went away with the stubs). Go gets typed constants
+  (`oapi.ValidationFailed`, ...) so a typo no longer compiles; the web gets the `ErrorCode` union, and `ApiError.code`
+  is `ErrorCode | 'unknown'` (`unknown` when the body is not a contract error, e.g. a proxy page).
+- **One message style:** a short line, lowercase start, no trailing period, safe to show a manager, and
+  `field: reason` whenever a field is to blame (`weeklyHours: number must be at most 168`, `id: must be a positive
+  whole number`). Errors about the body as a whole use `body` as the field: missing (`body: value is required but
+  missing`), not JSON (`body: must be valid JSON`, was `failed to decode request body`), wrong Content-Type, unknown
+  property. Missing body properties say `weeklyHours: value is required but missing`, the same words kin-openapi uses
+  for a missing parameter. Messages without one field keep plain wording: the 13-week limit, `no person with id 9`,
+  `something went wrong, try again` (500), and the router's 404s.
