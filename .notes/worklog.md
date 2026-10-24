@@ -319,3 +319,44 @@ Through the API on the scale database: 0.5 s per unfiltered request, 2,736,569 b
 - **JSON size is not the bottleneck on the wire** thanks to gzip (17x on the seed, 50x on the synthetic data). It is
   CPU and memory on both ends: ~2.7 MB to encode in Go and parse in the browser per request at 3,000 people, which is
   another argument for paging rather than for a denser format.
+
+## Capacity query: no JIT, no quadratic search join (#32)
+
+Two SQL changes in `capacityQuery`, nothing else (no schema, index, config or `jit = off`):
+
+- `weeks` is `$1::date + 7 * i FROM generate_series(0, ($2::date - $1::date) / 7) AS i`. The integer series has a
+  row-estimate support function, so custom plans see 13 rows instead of 1,000 and the total cost drops from ~1.1M to
+  ~12k, far below `jit_above_cost`.
+- The terms get their own `terms AS MATERIALIZED` CTE (still produced by the single normalisation in `folded`), and
+  `matched` joins names × terms. With no `q` that is 500 scans of an empty CTE instead of 500 scans of `folded`.
+
+Measured on the shared seed DB (read-only), real query text, `PREPARE` + `EXPLAIN (ANALYZE, BUFFERS) EXECUTE`,
+2025-12-29 to 2026-03-29 (13 weeks). The "q" row is the 8th execution on the connection, after 7 without `q`:
+
+| | before | after |
+|---|---|---|
+| no `q` (custom plan) | 305 to 460 ms, JIT 64 functions, 254 to 404 ms of it | 22 to 24 ms, no JIT |
+| `soren hag` after 7 executions | 202 to 280 ms, **generic** plan, JIT 68 functions | 2.4 to 2.8 ms, custom plan, no JIT |
+| `pg_prepared_statements` after 8 | generic 3, custom 5 | generic 0, custom 8 |
+| through the API (:8080 `main` vs :8081), no `q` | 225 to 310 ms | 20 to 38 ms |
+| through the API, `q=soren hag` after 8 unfiltered | 236 to 420 ms | 3.6 to 4.7 ms |
+
+- **After the fix the generic plan is never chosen, and that is why searches stay fast.** The generic plan still
+  cannot see the parameters, so its `generate_series(0, ($2 - $1) / 7)` falls back to the default 1,000 rows and costs
+  more than every custom plan; Postgres keeps planning per execution (~1 ms). Forced with
+  `SET plan_cache_mode = force_generic_plan` (in the measuring session only), the generic plan still JITs (270 to 440
+  ms). Nothing in the app sets that mode, but anything that does (a pooler in transaction mode with
+  `force_generic_plan`, say) would bring the JIT back.
+- **Tried and rejected: a fixed series bound.** `generate_series(0, 12) WHERE i <= ($2 - $1) / 7` is estimated
+  identically in both plans (4 rows: default 1/3 selectivity of 13), so even a forced generic plan has no JIT. But
+  then the generic plan wins after five executions and it does not narrow `allocated` to the matching people:
+  `soren hag` went from 2.4 to 27 ms. It would also have to stay in sync with `maxWeeks` by hand.
+  The way to make both plans exact is to send the Mondays as a `date[]` and `unnest` it (estimate = array length in
+  custom plans, 10 in generic ones). That changes the Go call, not only the SQL, so it is left for later.
+- **Results unchanged.** Old and new query output compared row by row for no `q`, `soren hag`, `an`, `SØREN`, `thor`,
+  `петрова`, `%` and `e a` (6,500 / 13 / 1,586 / 195 / 91 / 13 / 0 / 3,588 rows, all identical). Brute force: every
+  assignment expanded day by day, weekends dropped, summed per person per ISO week, 6,500 person-weeks (2,240 with
+  hours) identical to the new query. The API JSON for the 13-week range is byte-identical between `main` and the
+  branch. `TestCapacitySearchAgainstSeed` passes against the seed (test binary run on the Compose network).
+- Not re-measured at 3,000 people: #30's throwaway-database numbers for these exact two changes stand
+  (no `q` ~190 ms, with `q` 15 to 45 ms).
