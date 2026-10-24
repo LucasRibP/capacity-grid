@@ -71,7 +71,7 @@ export const getGetCapacityUrl = (params: GetCapacityParams,) => {
 /**
  * The range is expanded to whole ISO weeks (Monday to Sunday): `from` moves back to its Monday,
  * `to` moves forward to its Sunday. Allocation counts weekdays only (Monday to Friday).
- * At most 26 weeks per request.
+ * At most 13 weeks per request (a quarter); larger ranges are rejected with 400 range_too_large.
  * @summary Allocated hours and capacity per person per week
  */
 export const getCapacity = async (params: GetCapacityParams, options?: Parameters<typeof http>[1]): Promise<CapacityGrid> => {

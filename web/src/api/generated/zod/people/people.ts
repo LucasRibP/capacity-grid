@@ -14,7 +14,7 @@ import * as zod from 'zod';
 
 /**
  * Only capacity changes; allocations do not depend on weekly hours, so a client can update
- * `weeklyHours` for this person in every cached grid without refetching.
+ * `weeklyHours` and every `capacityHours` for this person in every cached grid without refetching.
  * @summary Change a person's weekly capacity
  */
 

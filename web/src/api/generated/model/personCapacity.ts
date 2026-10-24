@@ -9,12 +9,13 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { PersonWeek } from './personWeek';
 
 export interface PersonCapacity {
   id: number;
   name: string;
-  /** Capacity per week. Same for every week (there is no capacity history). */
+  /** The person's editable weekly capacity. */
   weeklyHours: number;
-  /** Allocated hours per week, same length and order as CapacityGrid.weeks. */
-  allocatedHours: number[];
+  /** Exactly one entry per CapacityGrid.weeks item, in the same order. */
+  weeks: PersonWeek[];
 }

@@ -17,4 +17,5 @@ export * from './getCapacityParams';
 export * from './health';
 export * from './person';
 export * from './personCapacity';
+export * from './personWeek';
 export * from './updatePerson';

@@ -15,7 +15,7 @@ import * as zod from 'zod';
 /**
  * The range is expanded to whole ISO weeks (Monday to Sunday): `from` moves back to its Monday,
  * `to` moves forward to its Sunday. Allocation counts weekdays only (Monday to Friday).
- * At most 26 weeks per request.
+ * At most 13 weeks per request (a quarter); larger ranges are rejected with 400 range_too_large.
  * @summary Allocated hours and capacity per person per week
  */
 export const GetCapacityQueryParams = zod.object({
@@ -26,12 +26,16 @@ export const GetCapacityQueryParams = zod.object({
 export const GetCapacityResponse = zod.object({
   "from": zod.iso.date().describe('Monday of the first week actually returned.'),
   "to": zod.iso.date().describe('Sunday of the last week actually returned.'),
-  "weeks": zod.array(zod.iso.date()).describe('Monday of each week, ascending. Every person\'s allocatedHours is aligned to this.'),
+  "weeks": zod.array(zod.iso.date()).describe('Monday of each week, ascending. Column headers for the grid.'),
   "people": zod.array(zod.object({
   "id": zod.int(),
   "name": zod.string(),
-  "weeklyHours": zod.number().describe('Capacity per week. Same for every week (there is no capacity history).'),
-  "allocatedHours": zod.array(zod.number()).describe('Allocated hours per week, same length and order as CapacityGrid.weeks.')
+  "weeklyHours": zod.number().describe('The person\'s editable weekly capacity.'),
+  "weeks": zod.array(zod.object({
+  "weekStart": zod.iso.date().describe('Monday of the week.'),
+  "allocatedHours": zod.number().describe('Sum of hours_per_day over the weekdays (Mon-Fri) of this week covered by assignments.'),
+  "capacityHours": zod.number().describe('Capacity for this week. Equals weeklyHours today (there is no capacity history).')
+})).describe('Exactly one entry per CapacityGrid.weeks item, in the same order.')
 })).describe('Every person, ordered by name then id, including people with no allocation.')
 })
 

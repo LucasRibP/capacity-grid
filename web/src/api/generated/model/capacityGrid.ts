@@ -16,7 +16,7 @@ export interface CapacityGrid {
   from: string;
   /** Sunday of the last week actually returned. */
   to: string;
-  /** Monday of each week, ascending. Every person's allocatedHours is aligned to this. */
+  /** Monday of each week, ascending. Column headers for the grid. */
   weeks: string[];
   /** Every person, ordered by name then id, including people with no allocation. */
   people: PersonCapacity[];

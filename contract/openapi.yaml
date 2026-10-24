@@ -32,7 +32,7 @@ paths:
       description: |
         The range is expanded to whole ISO weeks (Monday to Sunday): `from` moves back to its Monday,
         `to` moves forward to its Sunday. Allocation counts weekdays only (Monday to Friday).
-        At most 26 weeks per request.
+        At most 13 weeks per request (a quarter); larger ranges are rejected with 400 range_too_large.
       parameters:
         - name: from
           in: query
@@ -75,7 +75,7 @@ paths:
       summary: Change a person's weekly capacity
       description: |
         Only capacity changes; allocations do not depend on weekly hours, so a client can update
-        `weeklyHours` for this person in every cached grid without refetching.
+        `weeklyHours` and every `capacityHours` for this person in every cached grid without refetching.
       requestBody:
         required: true
         content:
@@ -142,7 +142,7 @@ components:
           description: Sunday of the last week actually returned.
         weeks:
           type: array
-          description: Monday of each week, ascending. Every person's allocatedHours is aligned to this.
+          description: Monday of each week, ascending. Column headers for the grid.
           items:
             type: string
             format: date
@@ -154,7 +154,7 @@ components:
 
     PersonCapacity:
       type: object
-      required: [id, name, weeklyHours, allocatedHours]
+      required: [id, name, weeklyHours, weeks]
       properties:
         id:
           type: integer
@@ -164,13 +164,29 @@ components:
         weeklyHours:
           type: number
           format: double
-          description: Capacity per week. Same for every week (there is no capacity history).
-        allocatedHours:
+          description: The person's editable weekly capacity.
+        weeks:
           type: array
-          description: Allocated hours per week, same length and order as CapacityGrid.weeks.
+          description: Exactly one entry per CapacityGrid.weeks item, in the same order.
           items:
-            type: number
-            format: double
+            $ref: "#/components/schemas/PersonWeek"
+
+    PersonWeek:
+      type: object
+      required: [weekStart, allocatedHours, capacityHours]
+      properties:
+        weekStart:
+          type: string
+          format: date
+          description: Monday of the week.
+        allocatedHours:
+          type: number
+          format: double
+          description: Sum of hours_per_day over the weekdays (Mon-Fri) of this week covered by assignments.
+        capacityHours:
+          type: number
+          format: double
+          description: Capacity for this week. Equals weeklyHours today (there is no capacity history).
 
     Person:
       type: object
