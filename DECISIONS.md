@@ -2,50 +2,33 @@
 
 ## What did the spec not tell you?
 
-- Response shape: one object per person, each with a list of weeks `{weekStart, allocatedHours, capacityHours}`, plus the list of weeks at the top. The grid can render it row by row.
-  - I considered a columnar shape. It's smaller, but harder to read, and with gzip the size difference is small (456 KB → 27 KB for 500 people × 13 weeks).
-- Weeks are ISO weeks (Monday to Sunday), and the requested range is extended to whole weeks, since the grid is weekly.
-  - Max 13 weeks per request (a quarter). Longer ranges return 400 `range_too_large`.
-- Only Monday to Friday count as allocated time. Ana's 8 h/day assignment runs Monday to Sunday; counting weekdays gives her 40 h capacity, counting every day would give 56 h.
-  - Per-person working days would be better, but there's no place for them in the schema.
-- Capacity is `weekly_hours`, the same for every week. There's no capacity history, so changing someone's hours also changes past weeks.
-- Saving is pessimistic: the grid updates after the server confirms.
-  - The PATCH is a single-row update and takes a few ms, so an optimistic update wouldn't feel much faster.
-  - Optimistic would also mean handling rollbacks, out-of-order saves, a background refetch overwriting the value, and the same person cached in several ranges and searches.
-  - After the save I update the person in every cached grid (`setQueriesData`) and refetch in the background. Allocation doesn't depend on `weekly_hours`, so only that person's capacity changes.
-  - If the save fails, the grid keeps the old value and the editor stays open with what was typed and a Retry button.
-  - I'd look at optimistic updates again if saves became slow (bad network, batch edits).
-- Last write wins. There's no version or `updated_at` column to detect conflicts.
-- No pagination: the API returns everyone in one response.
-  - With 500 people the response time was fine. EXPLAIN showed the cost was in the query, not the amount of data.
-  - In a test with 3,000 people and 2 years of assignments, two query fixes took it from 800–1,050 ms to ~190 ms without search, and from 300–500 ms to 15–45 ms with search.
-  - Gzip keeps the payload small, and row virtualization renders ~30 rows instead of 3,000.
-  - With rosters much larger than that, I'd load people in pages as you scroll.
-- Name search runs on the server: case- and accent-insensitive, every word has to match somewhere in the name, best matches first, 300 ms debounce.
-  - It's a filter on the capacity query, so it works with the date range, needs one request, and the cache update after a save also applies to it.
-  - I didn't use a Postgres extension because that would mean changing the schema. Because of that there's no typo tolerance, the accent map is hand-written, and it scans the whole `people` table.
-  - If I could change the schema I'd use `pg_trgm` and `unaccent` with a GIN index.
-- Smaller things:
-  - The previous and next weeks are prefetched, so moving one week is instant (~27 KB each).
-  - When the browser cancels a request, the query is cancelled in Postgres too, and it's not logged as a 500.
+- There is some prep I did before the test. I assumed that I would have to be fast and that there would be both frontend and backend work to be done, and looking at the time and the current AI landscape, I assumed it would be okay for me to use agents.
+  - So I chose in advance how I would approach each stack and how to integrate them. I chose to use oapi-codegen and Orval to generate most of the data layer for both sides and to generate the mocks I would use in React (the mocks were important because, as time was short, I intended to develop the frontend and backend in parallel in multiple worktrees).
+  - I also chose heavy test usage, to make sure the code came out less broken by the time I got to it. Since the agent was going to write the bulk of it, it needed a way to evaluate on its own whether the code it wrote was working.
+  - I also had it write a CLAUDE.md file at the beginning with good practices and the patterns I chose to use in the project, so that the AI code would come out better.
+  - The last point I had chosen during prep was to use a strong linter ruleset for both Go and JS, to make sure that the code the AI wrote would be less error-prone and start at a higher quality bar as well.
+  - I chose React Query for 3 reasons.
+    - I was already accustomed to the way it works, it separates data handling and UI better, and it is the most common solution for React.
+    - It's the stack you use :)
+    - Orval already generates everything for it, which made it easier to use in the test as well.
+- I chose pessimistic saving. I would consider optimistic saving if I had more time, but as the queries were already fast enough and it would take more work to maintain, even with more time I wouldn't do it (unless there were a performance reason).
+- There were a lot of weeks. If I tried to render everything, the performance was terrible, so I chose to keep 13 weeks, as it's a quarter and I imagine that most managers wouldn't look at more than a quarter at once most of the time.
+- I also virtualized the list of users and the performance improved even more. I considered infinite scrolling, but I tested with a synthetic DB with 3000 people, and the full query took 200–300 ms (around 0.5 s through the API). I found that acceptable for a first version, so I postponed pagination. On the product side, I don't believe a manager would look at more than that.
+- I added search, since I could not imagine navigating that page without search.
 
 ## What did you notice that looked wrong?
 
-- The name column resizes to the longest visible name, so the columns move when you search or scroll. A fixed width with truncation would fix it; I didn't get to it.
-- Eli Nakamura has 0 h capacity and 20 h allocated. That's in the seed, and the grid shows it as over capacity.
-- When the search changes, the old results stay on screen for about a second until the new ones load. I left it.
-- Search ties are sorted by name, so "Sørensen" (surname) comes before "Søren" (first name).
-- I compared the numbers with a day-by-day brute-force query: 19,500 person-weeks over four ranges, all matching.
+- The columns resized when we scrolled. I only noticed at the end and had no time to fix it.
+- I don't like how the calendar filter ended up. It should only allow the user to select full weeks, so that part of the UI needed more work. Also, the forward arrow only moved the calendar one week forward, which makes no sense in a quarterly view; I would fix that in the future too.
+- Search ties are sorted by name, so "Sørensen" (surname) comes before "Søren" (first name). In real life it would be a product decision, but to me it makes more sense for first names to have higher priority.
 
 ## What did the AI get wrong that you caught?
 
-- The capacity query was fast with the 500 seeded people but didn't scale. The search part joined every name with every name, and the way the weeks were generated made Postgres estimate ~1,000 rows instead of 13, so it JIT-compiled the query (~250 of ~280 ms). The tests didn't catch either; I found them by asking for EXPLAIN ANALYZE and a run with 3,000 people, and had both fixed.
+When I went to check the performance at the end, the performance of the capacity GET was a lot worse than I expected for the size of the database. I had the agent run an EXPLAIN ANALYZE to understand what was going on and found out that generate_series made Postgres estimate 1000 weeks instead of 13, which led to around 250 ms of JIT compilation on a 30 ms query. I switched to an integer series, which fixed the estimate and brought the query down to 23 ms.
 
 ## What would you do differently with a week?
 
-- Fix the name column width.
-- Store capacity history and per-person working days, so editing hours doesn't change the past.
-- Add a version column so concurrent edits don't silently overwrite each other.
-- Typo-tolerant search with `pg_trgm`, if the schema could change.
-- Run the database tests and a Playwright test for editing and a failed save in CI.
-- Load people in pages for much larger rosters.
+- Fix the bugs I mentioned in the previous section (column resizing and improving the calendar filter).
+- Improve the search by moving more of the work to precomputed columns in the database.
+- I would implement infinite scrolling with gradual requests to the backend. The speed for 3000 people was okay, but for future-proofing I think it would be worth the effort.
+- Improve the UI. I used shadcn/ui for speed, but it feels very AI-written; with more time I could have made a much better UI.
