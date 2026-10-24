@@ -46,6 +46,15 @@ left unfinished. Append as you go; a line or two per entry is right.
   shows the previous day, so that class of bug fails in CI.
 - The embedded browser in the desktop app blocks service workers, so MSW can't run there. To check against mocks,
   `window.fetch` was patched from the console with `buildCapacityGrid` from `src/api/mocks/capacity.ts`.
+- **Range in the URL without a router (#6)**: `?from=&to=` read with `useSyncExternalStore`, written with
+  `pushState`, so the back button steps through ranges. A hand-edited link that is invalid, reversed or longer than
+  13 weeks is fixed before any request (default range, swapped, or clamped to the Sunday of the 13th ISO week) and
+  a notice says so. The URL keeps what was asked for until the next navigation, so the notice doesn't flash away.
+- **Picker**: shadcn Calendar (react-day-picker), weeks from Monday, `resetOnSelect` so the first click starts a
+  new range. Once a start is picked, days more than 13 ISO weeks away are disabled. Its local `Date`s are converted
+  through local calendar fields (`toLocalDate` / `fromLocalDate`), never through UTC.
+- Checked at production size by patching `fetch` with 3,000 people × 13 weeks: 25 rows in the DOM, sticky header
+  and name column hold at row 1,365.
 - **Weekly hours are edited in a popover (#7)**, opened from the "h/wk" next to each name, not by swapping the
   cell for an input: a failed save must show the server's message and a retry, which does not fit a 44 px
   virtualized row. Enter saves, Escape cancels; the popover cannot close while a save is in flight, so its outcome
