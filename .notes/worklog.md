@@ -346,3 +346,34 @@ Through the API on the scale database: 0.5 s per unfiltered request, 2,736,569 b
   request for that range; only `from=2026-01-12` followed. Same with `q=ana+fer`. The save path was not exercised in
   the browser (the editor sends nothing for an unchanged value, and a real change would write to the shared
   database); it is covered in Vitest.
+
+## End-to-end verification (#9)
+
+Run on main at 99c8c47 (everything through #31 merged), `make up` from scratch, grid on :3000.
+
+- **Numbers against the seed.** The API compared with a brute-force query (one row per calendar day, Mon–Fri only,
+  summed per person/week) for four ranges: 2025-12-29..2026-03-29, 2026-09-28..2026-12-27, 2025-06-02..2025-08-31 and
+  the year boundary 2026-12-28..2027-01-03. 19,500 person-weeks, 0 mismatches in allocated or capacity hours. Spot
+  checks: Ana Ferreira 40 / 0 / 30 from 29 Dec; Eli Nakamura capacity 0 with 20 h in the week of 5 Jan (red, "20 / 0");
+  Dee Okafor 45 / 40 that same week. 129 of 500 people are over capacity in at least one week of Q1 2026. The seed has
+  no assignment with start after end and no hours_per_day outside 0..24.
+- **Navigation.** On load the grid requests the range plus both neighbours; "next week" renders on the next frame
+  with no request for that range, then prefetches the following week.
+- **Search.** Typing "soren" sends one request (debounce), matches the 15 Sørensen/Søren people and goes into the URL.
+  Ties are broken by name, so surnames "Sørensen" list before first names "Søren": accepted, it is the agreed order.
+- **Edit.** Ingrid Sørensen 40 → 25: the row shows 25 h/wk and her 30 h weeks turn red immediately after the 200;
+  the searched and unsearched cached ranges show the new value (cache patch + background refetch).
+- **Failed save.** API container stopped, save 25 → 40: the grid kept 25 (pessimistic), the editor stayed open with
+  the typed value, an error and a Retry button. API restarted, Retry saved 40. Out-of-range input (200) is stopped
+  in the client with "Enter a number of hours from 0 to 168". No error lines in the API log; the browser console
+  showed only the provoked 502.
+- **Fixed during verification: the failed-save message was technical.** With the API down the editor said "Request
+  failed with status 502". `ApiError` now falls back to "Couldn't reach the server. Check your connection and try
+  again." when there is no response (fetch rejected) or a gateway status (502/503/504, what the Vite proxy returns
+  when the API is down), and "Something went wrong on our side. Try again." for any other non-contract error. Contract
+  errors keep the server's message. Aborts stay AbortErrors so TanStack Query cancellation is untouched. The same
+  message shows on the grid's load error (checked with the API unreachable).
+- **Not changed:** when the search text changes, the previous results stay on screen until the new ones arrive
+  (~1 s here: debounce plus request). Left as is.
+- **Dev-only noise:** the first capacity request on page load shows as aborted in the browser. React StrictMode mounts
+  twice in development; the API logs nothing for it (#15 turns aborts into a silent 499).
