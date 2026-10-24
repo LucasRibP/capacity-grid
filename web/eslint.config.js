@@ -68,6 +68,11 @@ export default defineConfig([
     },
   },
   {
+    // shadcn/ui components are copied in by the CLI and export their cva variants next to the component.
+    files: ['src/components/ui/**'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
+  {
     files: ['**/*.d.ts'],
     rules: { '@typescript-eslint/consistent-type-definitions': 'off' }, // declaration merging needs interface
   },
