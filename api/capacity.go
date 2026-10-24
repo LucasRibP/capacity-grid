@@ -1,15 +1,21 @@
 package main
 
-import "net/http"
+import (
+	"context"
+	"net/http"
 
-// handleCapacity serves GET /api/capacity?from=YYYY-MM-DD&to=YYYY-MM-DD
+	"capacity/api/oapi"
+)
+
+// GetCapacity serves GET /api/capacity?from=YYYY-MM-DD&to=YYYY-MM-DD
 //
-// It should return, for every person and every week in the requested range,
-// how many hours they are allocated and how much capacity they have.
+// For every person and every ISO week (Monday to Sunday) overlapping the range: allocated hours
+// (weekdays only) and weekly capacity. Shape and rules: contract/openapi.yaml.
 //
-// The response shape is yours to design — the grid in web/ is the consumer.
-//
-// TODO: implement.
-func (s *server) handleCapacity(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+// TODO: implement (issue B1).
+func (s *server) GetCapacity(_ context.Context, _ oapi.GetCapacityRequestObject) (oapi.GetCapacityResponseObject, error) {
+	return oapi.GetCapacitydefaultJSONResponse{
+		StatusCode: http.StatusNotImplemented,
+		Body:       oapi.Error{Code: "not_implemented", Message: "Capacity is not available yet."},
+	}, nil
 }

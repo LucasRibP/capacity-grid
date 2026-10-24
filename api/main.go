@@ -3,60 +3,118 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	middleware "github.com/oapi-codegen/nethttp-middleware"
+
+	"capacity/api/oapi"
 )
 
+// server implements oapi.StrictServerInterface, generated from contract/openapi.yaml.
 type server struct {
 	db *pgxpool.Pool
 }
 
-func main() {
-	ctx := context.Background()
+var _ oapi.StrictServerInterface = (*server)(nil)
 
+func main() {
+	if err := run(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(ctx context.Context) error {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://capacity:capacity@localhost:5432/capacity?sslmode=disable"
+		dsn = "postgres://capacity:capacity@localhost:5432/capacity?sslmode=disable" //nolint:gosec // local dev default, same as docker-compose.yml
 	}
 
 	db, err := pgxpool.New(ctx, dsn)
 	if err != nil {
-		log.Fatalf("connect: %v", err)
+		return fmt.Errorf("connect: %w", err)
 	}
 	defer db.Close()
 
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		if err = db.Ping(ctx); err == nil {
 			break
 		}
 		time.Sleep(time.Second)
 	}
 	if err != nil {
-		log.Fatalf("ping: %v", err)
+		return fmt.Errorf("ping: %w", err)
 	}
 
-	s := &server{db: db}
+	handler, err := newHandler(&server{db: db})
+	if err != nil {
+		return err
+	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", s.handleHealth)
-	mux.HandleFunc("GET /api/capacity", s.handleCapacity)
-	mux.HandleFunc("PATCH /api/people/{id}", s.handleUpdatePerson)
-
+	srv := &http.Server{
+		Addr:              ":8080",
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	log.Println("listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	return srv.ListenAndServe()
 }
 
-func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	var people int
-	if err := s.db.QueryRow(r.Context(), `SELECT count(*) FROM people`).Scan(&people); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+// newHandler routes every operation in the contract to s. Requests are validated against the
+// embedded spec before they reach a handler, so handlers only check what the spec cannot express.
+func newHandler(s oapi.StrictServerInterface) (http.Handler, error) {
+	spec, err := oapi.GetSwagger()
+	if err != nil {
+		return nil, fmt.Errorf("load embedded spec: %w", err)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "people": people})
+
+	mux := http.NewServeMux()
+	oapi.HandlerWithOptions(
+		oapi.NewStrictHandlerWithOptions(s, nil, oapi.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
+			},
+			ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				log.Printf("handler error: %v", err)
+				writeError(w, http.StatusInternalServerError, "internal", "Something went wrong. Try again.")
+			},
+		}),
+		oapi.StdHTTPServerOptions{
+			BaseURL:    "/api",
+			BaseRouter: mux,
+			ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+				writeError(w, http.StatusBadRequest, "validation_failed", err.Error())
+			},
+		},
+	)
+
+	validate := middleware.OapiRequestValidatorWithOptions(spec, &middleware.Options{
+		SilenceServersWarning: true,
+		ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, _ *http.Request, opts middleware.ErrorHandlerOpts) {
+			code := "validation_failed"
+			if opts.StatusCode == http.StatusNotFound {
+				code = "not_found"
+			}
+			writeError(w, opts.StatusCode, code, err.Error())
+		},
+	})
+	return validate(mux), nil
+}
+
+func (s *server) GetHealth(ctx context.Context, _ oapi.GetHealthRequestObject) (oapi.GetHealthResponseObject, error) {
+	var people int64
+	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM people`).Scan(&people); err != nil {
+		return nil, fmt.Errorf("count people: %w", err)
+	}
+	return oapi.GetHealth200JSONResponse{Ok: true, People: people}, nil
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, oapi.Error{Code: code, Message: message})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

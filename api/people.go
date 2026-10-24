@@ -1,13 +1,21 @@
 package main
 
-import "net/http"
+import (
+	"context"
+	"net/http"
 
-// handleUpdatePerson serves PATCH /api/people/{id}
+	"capacity/api/oapi"
+)
+
+// UpdatePerson serves PATCH /api/people/{id}
 //
-// It should update the person's weekly hours. What it returns is yours to
-// design — the grid is the consumer, and it has state to keep honest.
+// Updates the person's weekly hours and returns the updated person. Allocations do not depend on
+// weekly hours, so the grid only needs this person's new capacity. Shape: contract/openapi.yaml.
 //
-// TODO: implement.
-func (s *server) handleUpdatePerson(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+// TODO: implement (issue B2).
+func (s *server) UpdatePerson(_ context.Context, _ oapi.UpdatePersonRequestObject) (oapi.UpdatePersonResponseObject, error) {
+	return oapi.UpdatePersondefaultJSONResponse{
+		StatusCode: http.StatusNotImplemented,
+		Body:       oapi.Error{Code: "not_implemented", Message: "Editing capacity is not available yet."},
+	}, nil
 }

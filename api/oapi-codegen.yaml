@@ -1,0 +1,9 @@
+# Generates oapi/oapi.gen.go from ../contract/openapi.yaml. Run: go generate ./...
+# Paths are relative to api/oapi, where the go:generate directive runs.
+package: oapi
+output: oapi.gen.go
+generate:
+  std-http-server: true
+  strict-server: true
+  models: true
+  embedded-spec: true

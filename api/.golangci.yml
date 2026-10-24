@@ -1,0 +1,63 @@
+# golangci-lint v2. Run from api/: golangci-lint run ./... && golangci-lint fmt
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - contextcheck
+    - errorlint
+    - exhaustive
+    - gocognit
+    - gocritic
+    - gosec
+    - intrange
+    - misspell
+    - nilerr
+    - noctx
+    - perfsprint
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - testifylint
+    - unconvert
+    - unparam
+    - usestdlibvars
+  settings:
+    gocognit:
+      min-complexity: 20
+    exhaustive:
+      default-signifies-exhaustive: true
+    revive:
+      rules:
+        - name: error-strings
+        - name: error-return
+        - name: context-as-argument
+        - name: early-return
+        - name: indent-error-flow
+        - name: superfluous-else
+  exclusions:
+    generated: lax
+    paths:
+      - oapi/oapi.gen.go
+    presets: [std-error-handling]
+    rules:
+      - path: _test\.go
+        linters: [gosec]
+
+formatters:
+  enable:
+    - gofumpt
+    - gci
+  settings:
+    gofumpt:
+      module-path: capacity/api
+    gci:
+      sections: [standard, default, localmodule]
+  exclusions:
+    paths:
+      - oapi/oapi.gen.go
