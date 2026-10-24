@@ -128,3 +128,30 @@ left unfinished. Append as you go; a line or two per entry is right.
   property. Missing body properties say `weeklyHours: value is required but missing`, the same words kin-openapi uses
   for a missing parameter. Messages without one field keep plain wording: the 13-week limit, `no person with id 9`,
   `something went wrong, try again` (500), and the router's 404s.
+
+## Backend: name search in GET /api/capacity (#18)
+
+- **One normalisation for both sides.** Names and terms are folded by the same SQL expression, applied once to a
+  `UNION ALL` of both (`folded` CTE), rather than written twice and left to drift. It runs `normalize(…, NFC)` first
+  (built in since PG 13, not an extension), so a decomposed "ø" typed on some keyboards still matches.
+- **Fold map as parameters.** `translate()`'s from/to strings are Go constants passed as `$4`/`$5`, so a unit test
+  checks they stay aligned letter by letter (one missing letter silently shifts every fold after it). Coverage: every
+  non-ASCII Latin letter in the seed (incl. Vietnamese ễ ị ơ ư, Croatian/Polish ć č ś š), common Latin ones and
+  Greek tonos/final sigma. Cyrillic, Hebrew, Arabic, CJK and Hangul are only lowercased: "петрова" finds Нина Петрова,
+  "petrova" does not (no transliteration).
+- **Word start = name start or after a space**, as the issue says. Hyphens and apostrophes are not boundaries, so
+  "woo" matches "Hyun-woo" but does not rank as a word start.
+- **Terms split in Go** (`strings.Fields`) and sent as a never-nil array: pgx sends a nil slice as NULL, and
+  `cardinality(NULL) = 0` is not true, which would have turned a blank `q` into "nobody".
+- The allocation scan is restricted to the matching people, so a search reads only their assignments
+  (`assignments_person_id_idx`). Without `q` the response is byte-identical to `main` (checked on three ranges).
+- **Cost:** EXPLAIN ANALYZE of `q=soren hag` on the default range: 13 ms, ~11 ms of it folding and matching 500
+  names. It grows linearly: expect tens of ms at a few thousand people. If it ever matters, the next step within the
+  rules is to fold names once per request in a materialised CTE before the term cross join (already the case) and
+  cut the duplicated `position()` call; beyond that it needs the `pg_trgm` route described under "Search".
+- **Testing the SQL:** `TestCapacitySearchAgainstSeed` is opt-in (`CAPACITY_TEST_DATABASE_URL`). The shared
+  database is not published on the host, so build the test binary for Linux (`CGO_ENABLED=0 GOOS=linux go test -c`),
+  `docker cp` it into a throwaway `postgres:17` container on `capacity-grid-assignment_default` and run it there.
+  (A bind mount from the macOS temp dir did not work under Colima.)
+- The shared stack on :8080 still runs a pre-#12 image (`not_implemented`), so comparisons were made against a
+  throwaway build of `origin/main` on :8083.
