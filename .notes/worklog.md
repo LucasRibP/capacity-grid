@@ -26,3 +26,12 @@ left unfinished. Append as you go; a line or two per entry is right.
   never changes allocations, so patching is exact. With more time: optimistic save with rollback for
   responsiveness.
 - **No concurrency control**: last write wins. No `updated_at`/version column and the schema is fixed.
+
+## Backend: PATCH /api/people/{id} (#3)
+
+- **Last write wins.** `UPDATE ... RETURNING` with no version check: the fixed schema has no `updated_at` or
+  version column. Two managers editing the same person at once silently overwrite each other; with a schema change,
+  an `If-Match` on a version column would turn that into a 409.
+- Ids above the 32-bit `serial` range return 404 (they cannot exist) rather than a 500 from parameter encoding.
+- Verified on the shared database: PATCH Eli Nakamura to 37.5 → `GET /api/capacity` (the #2 branch) showed 37.5 in
+  every week with allocations unchanged; then restored to 0.
