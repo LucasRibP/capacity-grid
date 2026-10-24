@@ -14,6 +14,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/klauspost/compress/gzhttp"
 	middleware "github.com/oapi-codegen/nethttp-middleware"
 
 	"capacity/api/oapi"
@@ -106,7 +107,9 @@ func newHandler(s oapi.StrictServerInterface) (http.Handler, error) {
 			writeError(w, opts.StatusCode, code, validationMessage(err))
 		},
 	})
-	return validate(mux), nil
+	// gzip when the client accepts it: a full roster is megabytes of JSON. Bodies under 1 KB stay
+	// plain, and Vary: Accept-Encoding is set either way so caches keep the two apart.
+	return gzhttp.GzipHandler(validate(mux)), nil
 }
 
 func (s *server) GetHealth(ctx context.Context, _ oapi.GetHealthRequestObject) (oapi.GetHealthResponseObject, error) {
