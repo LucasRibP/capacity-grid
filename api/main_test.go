@@ -23,14 +23,15 @@ func TestHandlerValidatesRequestsAgainstContract(t *testing.T) {
 	cases := []struct {
 		name, method, target, body string
 		wantStatus                 int
-		wantCode                   string
+		wantCode, wantMsg          string
 	}{
-		{"capacity without params", http.MethodGet, "/api/capacity", "", http.StatusBadRequest, "validation_failed"},
-		{"capacity with bad date", http.MethodGet, "/api/capacity?from=nope&to=2026-01-16", "", http.StatusBadRequest, "validation_failed"},
-		{"patch with negative hours", http.MethodPatch, "/api/people/1", `{"weeklyHours":-1}`, http.StatusBadRequest, "validation_failed"},
-		{"patch with unknown field", http.MethodPatch, "/api/people/1", `{"weeklyHours":10,"name":"x"}`, http.StatusBadRequest, "validation_failed"},
-		{"patch with non-numeric id", http.MethodPatch, "/api/people/abc", `{"weeklyHours":10}`, http.StatusBadRequest, "validation_failed"},
-		{"unknown route", http.MethodGet, "/api/nope", "", http.StatusNotFound, "not_found"},
+		{"capacity without params", http.MethodGet, "/api/capacity", "", http.StatusBadRequest, "validation_failed", ""},
+		{"capacity with bad date", http.MethodGet, "/api/capacity?from=nope&to=2026-01-16", "", http.StatusBadRequest, "validation_failed", ""},
+		{"patch above max", http.MethodPatch, "/api/people/1", `{"weeklyHours":500}`, http.StatusBadRequest, "validation_failed", "weeklyHours: number must be at most 168"},
+		{"patch with negative hours", http.MethodPatch, "/api/people/1", `{"weeklyHours":-1}`, http.StatusBadRequest, "validation_failed", ""},
+		{"patch with unknown field", http.MethodPatch, "/api/people/1", `{"weeklyHours":10,"name":"x"}`, http.StatusBadRequest, "validation_failed", ""},
+		{"patch with non-numeric id", http.MethodPatch, "/api/people/abc", `{"weeklyHours":10}`, http.StatusBadRequest, "validation_failed", ""},
+		{"unknown route", http.MethodGet, "/api/nope", "", http.StatusNotFound, "not_found", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,6 +53,12 @@ func TestHandlerValidatesRequestsAgainstContract(t *testing.T) {
 			}
 			if body.Code != tc.wantCode {
 				t.Errorf("code = %q, want %q", body.Code, tc.wantCode)
+			}
+			if strings.Contains(body.Message, "\n") {
+				t.Errorf("message must be one line a manager can read, got %q", body.Message)
+			}
+			if tc.wantMsg != "" && body.Message != tc.wantMsg {
+				t.Errorf("message = %q, want %q", body.Message, tc.wantMsg)
 			}
 		})
 	}

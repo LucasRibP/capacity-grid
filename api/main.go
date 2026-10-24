@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/jackc/pgx/v5/pgxpool"
 	middleware "github.com/oapi-codegen/nethttp-middleware"
 
@@ -99,7 +103,7 @@ func newHandler(s oapi.StrictServerInterface) (http.Handler, error) {
 			if opts.StatusCode == http.StatusNotFound {
 				code = "not_found"
 			}
-			writeError(w, opts.StatusCode, code, err.Error())
+			writeError(w, opts.StatusCode, code, validationMessage(err))
 		},
 	})
 	return validate(mux), nil
@@ -111,6 +115,35 @@ func (s *server) GetHealth(ctx context.Context, _ oapi.GetHealthRequestObject) (
 		return nil, fmt.Errorf("count people: %w", err)
 	}
 	return oapi.GetHealth200JSONResponse{Ok: true, People: people}, nil
+}
+
+// validationMessage turns a kin-openapi error (multi-line, schema dump included) into one line a
+// manager can read, e.g. "weeklyHours: number must be at most 168".
+func validationMessage(err error) string {
+	field := ""
+	var reqErr *openapi3filter.RequestError
+	if errors.As(err, &reqErr) && reqErr.Parameter != nil {
+		field = reqErr.Parameter.Name
+	}
+
+	reason := err.Error()
+	var schemaErr *openapi3.SchemaError
+	switch {
+	case errors.As(err, &schemaErr):
+		if ptr := schemaErr.JSONPointer(); len(ptr) > 0 {
+			field = strings.Join(ptr, ".")
+		}
+		reason = schemaErr.Reason
+	case reqErr != nil && reqErr.Reason != "":
+		reason = reqErr.Reason
+	case reqErr != nil && reqErr.Err != nil:
+		reason = reqErr.Err.Error()
+	}
+
+	if field == "" {
+		return reason
+	}
+	return field + ": " + reason
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
