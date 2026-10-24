@@ -46,3 +46,13 @@ left unfinished. Append as you go; a line or two per entry is right.
   shows the previous day, so that class of bug fails in CI.
 - The embedded browser in the desktop app blocks service workers, so MSW can't run there. To check against mocks,
   `window.fetch` was patched from the console with `buildCapacityGrid` from `src/api/mocks/capacity.ts`.
+- **Weekly hours are edited in a popover (#7)**, opened from the "h/wk" next to each name, not by swapping the
+  cell for an input: a failed save must show the server's message and a retry, which does not fit a 44 px
+  virtualized row. Enter saves, Escape cancels; the popover cannot close while a save is in flight, so its outcome
+  is never hidden. On success the server's `weeklyHours` is written into every cached `['/capacity', …]` query and
+  they are invalidated in the background (`useUpdateWeeklyHours`). The input is text with `inputMode="decimal"`,
+  so the typed value is kept as typed on a failed save; a comma is accepted as the decimal separator.
+- Left as is: scrolling a row far enough out of view unmounts its editor (virtualization), dropping an unsaved
+  draft. A save already sent still lands in the cache.
+- The browser mock for PATCH keeps the change (so the background refetch agrees) and fails on 13 h, to try the
+  failed-save path. Checked in the embedded browser with `window.fetch` patched from the console, as above.
