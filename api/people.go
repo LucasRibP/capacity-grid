@@ -21,7 +21,7 @@ import (
 func (s *server) UpdatePerson(ctx context.Context, req oapi.UpdatePersonRequestObject) (oapi.UpdatePersonResponseObject, error) {
 	if req.Body == nil {
 		return oapi.UpdatePerson400JSONResponse{ErrorJSONResponse: oapi.ErrorJSONResponse{
-			Code: "validation_failed", Message: "weeklyHours: value is required but missing",
+			Code: oapi.ValidationFailed, Message: "body: value is required but missing",
 		}}, nil
 	}
 	// people.id is a 32-bit serial: a larger id cannot exist, and would fail to encode as a parameter.
@@ -44,5 +44,5 @@ func (s *server) UpdatePerson(ctx context.Context, req oapi.UpdatePersonRequestO
 }
 
 func personNotFound(id int64) oapi.UpdatePerson404JSONResponse {
-	return oapi.UpdatePerson404JSONResponse{Code: "not_found", Message: fmt.Sprintf("No person with id %d.", id)}
+	return oapi.UpdatePerson404JSONResponse{Code: oapi.NotFound, Message: fmt.Sprintf("no person with id %d", id)}
 }
