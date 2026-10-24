@@ -110,3 +110,6 @@ left unfinished. Append as you go; a line or two per entry is right.
 - The browser mock for PATCH keeps the change (so the background refetch agrees) and fails on 13 h, to try the
   failed-save path. Checked in the embedded browser with `window.fetch` patched from the console, as above.
 
+- #7 checked against the real API (`api/` from this branch on :8082): saving Fatima Al-Rashid at 30 h turned her
+  30 / 20 week from red to 30 / 30 without a reload; restored to 20 afterwards. The PATCH mock's codes and messages
+  were aligned with the API's (bounds, missing value, unknown id, internal).
