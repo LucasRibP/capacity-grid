@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
-	"net/http"
+	"errors"
+	"fmt"
+	"math"
+
+	"github.com/jackc/pgx/v5"
 
 	"capacity/api/oapi"
 )
@@ -12,10 +16,33 @@ import (
 // Updates the person's weekly hours and returns the updated person. Allocations do not depend on
 // weekly hours, so the grid only needs this person's new capacity. Shape: contract/openapi.yaml.
 //
-// TODO: implement (issue B2).
-func (s *server) UpdatePerson(_ context.Context, _ oapi.UpdatePersonRequestObject) (oapi.UpdatePersonResponseObject, error) {
-	return oapi.UpdatePersondefaultJSONResponse{
-		StatusCode: http.StatusNotImplemented,
-		Body:       oapi.Error{Code: "not_implemented", Message: "Editing capacity is not available yet."},
-	}, nil
+// The 0..168 range is enforced by the spec before this runs. Last write wins: the schema has no
+// version column to detect a concurrent edit.
+func (s *server) UpdatePerson(ctx context.Context, req oapi.UpdatePersonRequestObject) (oapi.UpdatePersonResponseObject, error) {
+	if req.Body == nil {
+		return oapi.UpdatePerson400JSONResponse{ErrorJSONResponse: oapi.ErrorJSONResponse{
+			Code: "validation_failed", Message: "weeklyHours: value is required but missing",
+		}}, nil
+	}
+	// people.id is a 32-bit serial: a larger id cannot exist, and would fail to encode as a parameter.
+	if req.Id > math.MaxInt32 {
+		return personNotFound(req.Id), nil
+	}
+
+	var p oapi.Person
+	err := s.db.QueryRow(ctx,
+		`UPDATE people SET weekly_hours = $2 WHERE id = $1 RETURNING id, name, weekly_hours::float8`,
+		req.Id, req.Body.WeeklyHours,
+	).Scan(&p.Id, &p.Name, &p.WeeklyHours)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return personNotFound(req.Id), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update person %d: %w", req.Id, err)
+	}
+	return oapi.UpdatePerson200JSONResponse(p), nil
+}
+
+func personNotFound(id int64) oapi.UpdatePerson404JSONResponse {
+	return oapi.UpdatePerson404JSONResponse{Code: "not_found", Message: fmt.Sprintf("No person with id %d.", id)}
 }
