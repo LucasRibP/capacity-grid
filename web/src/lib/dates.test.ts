@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { addWeeks, endOfIsoWeek, formatDay, isIsoDate, startOfIsoWeek, weekStartsBetween } from './dates'
+import {
+  addWeeks,
+  endOfIsoWeek,
+  formatDay,
+  fromLocalDate,
+  isIsoDate,
+  startOfIsoWeek,
+  toLocalDate,
+  weekStartsBetween,
+} from './dates'
 
 describe('ISO weeks across the 2025/2026 boundary', () => {
   it('starts the week of New Year on Monday 29 December', () => {
@@ -33,5 +42,14 @@ describe('isIsoDate', () => {
     expect(isIsoDate('2025-02-29')).toBe(false)
     expect(isIsoDate('2025-1-5')).toBe(false)
     expect(isIsoDate('garbage')).toBe(false)
+  })
+})
+
+describe('date picker conversion', () => {
+  it('round-trips the day a picker shows, even where local midnight is the previous UTC day', () => {
+    const local = toLocalDate('2026-01-01')
+    expect([local.getFullYear(), local.getMonth(), local.getDate()]).toEqual([2026, 0, 1])
+    expect(fromLocalDate(local)).toBe('2026-01-01')
+    expect(fromLocalDate(new Date(2025, 11, 31, 23, 30))).toBe('2025-12-31')
   })
 })

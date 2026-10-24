@@ -69,3 +69,17 @@ export function formatDay(date: string, withYear = false): string {
 export function yearOf(date: string): string {
   return date.slice(0, 4)
 }
+
+// Date pickers work with local `Date`s. Converting through the local calendar fields (not through UTC) keeps the
+// day the person clicked, in any timezone.
+
+/** Local midnight of `date`, for date pickers. */
+export function toLocalDate(date: string): Date {
+  const utc = toUtc(date)
+  return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate())
+}
+
+/** The calendar day a date picker selected, as `YYYY-MM-DD`. */
+export function fromLocalDate(local: Date): string {
+  return fromUtc(new Date(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate())))
+}
