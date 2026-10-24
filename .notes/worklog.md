@@ -320,6 +320,33 @@ Through the API on the scale database: 0.5 s per unfiltered request, 2,736,569 b
   CPU and memory on both ends: ~2.7 MB to encode in Go and parse in the browser per request at 3,000 people, which is
   another argument for paging rather than for a denser format.
 
+## Frontend: prefetch the neighbouring weeks (#16)
+
+- **Lives in `useCapacity`**, so the prefetched key is built by the same `capacityParams` as the grid's own query
+  (blank `q` left out). The neighbour is `shiftRange(range, ±1)` passed through `normalizeRange`, the same path a
+  week-button click takes through the URL; if `normalizeRange` would change it (a notice), it is skipped. A shift
+  keeps the week count, so in practice that guard never fires; it is there so a future range rule cannot make the
+  prefetch ask for something the UI would not.
+- **When**: the current query is a success, not fetching, and not placeholder data; no `updatePerson` mutation is
+  pending (`useIsMutating` on the generated mutation key); no search is waiting for its debounce.
+- **Search debounce flag**: the box and the grid are siblings, so `PeopleSearch` publishes "text ahead of `?q=`"
+  through a tiny external store in `useSearchParam.ts` and `CapacityGrid` reads it. Threading props through
+  `App` → `RangeToolbar` → `PeopleSearch` was the alternative; the store kept the change to three files.
+- **Prefetches carry their own `staleTime` (30 s)**, matching the app client, so "fetched once" does not depend on the
+  client default (the test client uses 0). With staleTime 0 every settle would re-request both neighbours.
+- **After a save**: `setQueriesData` on `['/capacity']` patches the prefetched entries too (test proves it), and
+  `invalidateQueries` marks them stale. They are not active, so they are only refetched when the grid settles again
+  and the prefetch runs, which is after the save has resolved.
+- Used `queryClient.query(...).catch(noop)` instead of `prefetchQuery` (deprecated in our TanStack Query 5.104; lint
+  rejects it). A failed prefetch is silent: the week then loads on click as before.
+- Existing tests that counted capacity requests (`PeopleSearch`, `WeeklyHoursEditor`) now count only the range on
+  screen.
+- Browser check against `api/` from this branch on :8081: after load, `from=2025-12-22` and `from=2026-01-05`
+  finished at ~1.0 s; "Next week" clicked at ~13 s rendered the new weeks on the next frame with no "Updating…" and no
+  request for that range; only `from=2026-01-12` followed. Same with `q=ana+fer`. The save path was not exercised in
+  the browser (the editor sends nothing for an unchanged value, and a real change would write to the shared
+  database); it is covered in Vitest.
+
 ## Capacity query: no JIT, no quadratic search join (#32)
 
 Two SQL changes in `capacityQuery`, nothing else (no schema, index, config or `jit = off`):
