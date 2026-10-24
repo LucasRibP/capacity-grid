@@ -26,3 +26,23 @@ left unfinished. Append as you go; a line or two per entry is right.
   never changes allocations, so patching is exact. With more time: optimistic save with rollback for
   responsiveness.
 - **No concurrency control**: last write wins. No `updated_at`/version column and the schema is fixed.
+
+## Search
+
+- **Server-side name search, no Postgres extension.** `GET /api/capacity` takes an optional `q`: case- and
+  accent-insensitive, split on whitespace, every term must be a substring of the name, relevance (word-start matches)
+  first. The frontend debounces typing by 300 ms. It is a filter on the capacity query, not a separate people
+  endpoint, so search composes with the range, stays one round trip, and the post-save cache patch covers it.
+- **Why no extension:** `db/schema.sql` is fixed input, and `CREATE EXTENSION` from the API at boot would be a schema
+  change by the back door. Plain SQL (`lower` + `translate`/`replace` for accents + `position`) stays inside the rules.
+- **Trade-offs we accept:**
+  - No typo tolerance: "sorne" does not find Søren. Substring, word order and accents are handled.
+  - The accent map is hand-written: it covers the letters in the seed and common Latin ones; a new alphabet needs
+    new entries. Relevance is crude (word-start matches, then name).
+  - No index can serve it, so it is a sequential scan of `people`. Fine for a few thousand names (milliseconds);
+    it grows linearly with the roster.
+  - Positive side: deterministic and easy to explain, no new dependency, nothing to migrate.
+- **If the schema could change**, the search would run fully in the database with typo tolerance: enable `pg_trgm`
+  and `unaccent`, add an IMMUTABLE `unaccent` wrapper, a GIN trigram index on the normalised name (expression index
+  or generated column), match with `word_similarity`/`%` and order by similarity. Typo-tolerant, index-backed, and
+  the hand-written accent map goes away.
