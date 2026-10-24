@@ -28,7 +28,8 @@ type CapacityGrid struct {
 	// From Monday of the first week actually returned.
 	From openapi_types.Date `json:"from"`
 
-	// People Every person, ordered by name then id, including people with no allocation.
+	// People Every person matching `q` (everyone without `q`), including people with no allocation. Ordered by name
+	// then id, or by relevance first when `q` is given.
 	People []PersonCapacity `json:"people"`
 
 	// To Sunday of the last week actually returned.
@@ -98,6 +99,12 @@ type GetCapacityParams struct {
 
 	// To Last day of the range (inclusive), YYYY-MM-DD. Must not be before `from`.
 	To openapi_types.Date `form:"to" json:"to"`
+
+	// Q Name search. Trimmed; blank means no filter. Case- and accent-insensitive (ø → o, þ → th, …).
+	// Split on whitespace; every term must appear somewhere in the name, in any order. No typo tolerance.
+	// With a search, people are ordered by relevance (terms matching the start of a word first), then name,
+	// then id; `people` may be empty.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
 }
 
 // UpdatePersonJSONRequestBody defines body for UpdatePerson for application/json ContentType.
@@ -156,6 +163,19 @@ func (siw *ServerInterfaceWrapper) GetCapacity(w http.ResponseWriter, r *http.Re
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
 		}
 		return
 	}
@@ -639,34 +659,38 @@ func (sh *strictHandler) UpdatePerson(w http.ResponseWriter, r *http.Request, id
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"OWR5vfzvAA==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
