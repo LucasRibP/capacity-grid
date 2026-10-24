@@ -92,22 +92,9 @@ Source of truth: the "Planning" section of `.notes/worklog.md` and the issues. D
 
 ### Pull requests
 
-Title in the commit format (`feat(api): serve allocated hours per person per week`). Body in English:
-
-```
-## Summary
-<What changed and why, in 2–4 bullets. Decisions made and alternatives rejected.>
-
-## Done when
-- [x] <each item from the issue> — <evidence: command output, curl result, test name, screenshot>
-
-## Not done / follow-ups
-<Anything left out on purpose, or "None".>
-
-Closes #<issue>
-
-🤖 Generated with <agent name>
-```
+Body: fill `.github/pull_request_template.md` (`gh pr create` picks it up; with `--body-file`, start from a copy
+of it). Keep its headings and the `Closes #<issue>` line. Title: `<type>(<issueNumber>): <PR name>`, e.g.
+`feat(2): Serve capacity per person per week`. End the body with `🤖 Generated with <agent name>`.
 
 ### Commit messages
 
