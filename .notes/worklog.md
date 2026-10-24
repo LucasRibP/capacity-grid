@@ -27,6 +27,50 @@ left unfinished. Append as you go; a line or two per entry is right.
   responsiveness.
 - **No concurrency control**: last write wins. No `updated_at`/version column and the schema is fixed.
 
+## Backend: GET /api/capacity (#2)
+
+- **Weekday count without a calendar table.** Within one ISO week Mon–Fri is the contiguous span
+  `[week_start, week_start + 4]`, so an assignment's weekdays in that week are the length of its overlap with that
+  span. Weekend days are never inside it. One query: `generate_series` weeks, assignments joined to the weeks they
+  touch, summed per person/week, then `people × weeks LEFT JOIN` so everyone gets every week. Sums stay `numeric`;
+  the cast to `float8` happens only on the final value.
+- **Verified against a brute-force day-by-day query** (one row per calendar day, weekdays only) for the default
+  range: all 1500 person-week values identical. Ana Ferreira 40 / 0 / 30, Eli Nakamura capacity 0 with 20 h.
+- **Error messages**: the date-format 400 used to dump the kin-openapi regex; now `from: must be a date in
+  YYYY-MM-DD format`, also for dates that match the pattern but do not exist (2026-02-30), which fail later in
+  parameter binding. `from > to` → `validation_failed`; more than 13 weeks after widening → `range_too_large`.
+- **Size**: 13 weeks × 500 people ≈ 455 KB of JSON, ~110 ms locally. At a few thousand people that is a few MB
+  uncompressed; gzip and people pagination are the next steps (pagination is deferred by decision).
+
+## Search
+
+- **Server-side name search, no Postgres extension.** `GET /api/capacity` takes an optional `q`: case- and
+  accent-insensitive, split on whitespace, every term must be a substring of the name, relevance (word-start matches)
+  first. The frontend debounces typing by 300 ms. It is a filter on the capacity query, not a separate people
+  endpoint, so search composes with the range, stays one round trip, and the post-save cache patch covers it.
+- **Why no extension:** `db/schema.sql` is fixed input, and `CREATE EXTENSION` from the API at boot would be a schema
+  change by the back door. Plain SQL (`lower` + `translate`/`replace` for accents + `position`) stays inside the rules.
+- **Trade-offs we accept:**
+  - No typo tolerance: "sorne" does not find Søren. Substring, word order and accents are handled.
+  - The accent map is hand-written: it covers the letters in the seed and common Latin ones; a new alphabet needs
+    new entries. Relevance is crude (word-start matches, then name).
+  - No index can serve it, so it is a sequential scan of `people`. Fine for a few thousand names (milliseconds);
+    it grows linearly with the roster.
+  - Positive side: deterministic and easy to explain, no new dependency, nothing to migrate.
+- **If the schema could change**, the search would run fully in the database with typo tolerance: enable `pg_trgm`
+  and `unaccent`, add an IMMUTABLE `unaccent` wrapper, a GIN trigram index on the normalised name (expression index
+  or generated column), match with `word_similarity`/`%` and order by similarity. Typo-tolerant, index-backed, and
+  the hand-written accent map goes away.
+
+## Backend: PATCH /api/people/{id} (#3)
+
+- **Last write wins.** `UPDATE ... RETURNING` with no version check: the fixed schema has no `updated_at` or
+  version column. Two managers editing the same person at once silently overwrite each other; with a schema change,
+  an `If-Match` on a version column would turn that into a 409.
+- Ids above the 32-bit `serial` range return 404 (they cannot exist) rather than a 500 from parameter encoding.
+- Verified on the shared database: PATCH Eli Nakamura to 37.5 → `GET /api/capacity` (the #2 branch) showed 37.5 in
+  every week with allocations unchanged; then restored to 0.
+
 ## Frontend
 
 - **Grid cells are fill bars (#5)**, chosen by the human from three GitHub-style options: each person-week is a bar

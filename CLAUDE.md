@@ -67,6 +67,10 @@ Source of truth: the "Planning" section of `.notes/worklog.md` and the issues. D
   changes allocations, so the patch is exact.
 - **A failed save** keeps the typed value in the editor, shows the server's message and a retry, and leaves the grid
   untouched. Client validation mirrors the contract (0 to 168).
+- **Name search is server-side, without Postgres extensions.** Optional `q` on `GET /api/capacity`: case- and
+  accent-insensitive, every whitespace-separated term must be a substring of the name, relevance first. No typo
+  tolerance (the fixed schema rules out `pg_trgm`). The UI debounces by 300 ms. Details and trade-offs: "Search" in
+  `.notes/worklog.md`.
 - **No concurrency control: last write wins.** There is no `updated_at` or version column and the schema is fixed.
 - **Errors** are `{ code, message }`. `message` is one line a manager can read; `code` is machine-readable
   (`validation_failed`, `range_too_large`, `not_found`, `internal`).
