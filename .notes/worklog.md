@@ -128,3 +128,16 @@ left unfinished. Append as you go; a line or two per entry is right.
   property. Missing body properties say `weeklyHours: value is required but missing`, the same words kin-openapi uses
   for a missing parameter. Messages without one field keep plain wording: the 13-week limit, `no person with id 9`,
   `something went wrong, try again` (500), and the router's 404s.
+
+## Backend: compressed responses (#14)
+
+- `klauspost/compress/gzhttp` wraps the whole handler in `newHandler`. Measured on :8081 against the shared database,
+  `GET /api/capacity?from=2025-12-29&to=2026-03-29` (500 people x 13 weeks): **455,863 bytes plain, 26,579 bytes with
+  `Accept-Encoding: gzip`** (~17x smaller). Same numbers through the Vite proxy on :3001, which passes the encoding
+  through untouched. A few thousand people scale that to ~2-3 MB plain, ~150 KB gzipped.
+- **zstd comes for free.** gzhttp v1.20 also negotiates zstd, and Chrome asks for it: the browser got the same response
+  in 24,358 bytes with `Content-Encoding: zstd`. Left on: every current browser decodes it and gzip remains the
+  fallback for everything else.
+- Bodies under 1 KB (every error response) are sent uncompressed, the library default; `Vary: Accept-Encoding` is set
+  on every response, so a cache never hands a compressed body to a client that did not ask for it. Errors were
+  checked with and without the header: valid `{code, message}` JSON either way.
