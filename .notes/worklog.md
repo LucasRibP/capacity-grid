@@ -146,9 +146,9 @@ left unfinished. Append as you go; a line or two per entry is right.
 - The allocation scan is restricted to the matching people, so a search reads only their assignments
   (`assignments_person_id_idx`). Without `q` the response is byte-identical to `main` (checked on three ranges).
 - **Cost:** EXPLAIN ANALYZE of `q=soren hag` on the default range: 13 ms, ~11 ms of it folding and matching 500
-  names. It grows linearly: expect tens of ms at a few thousand people. If it ever matters, the next step within the
-  rules is to fold names once per request in a materialised CTE before the term cross join (already the case) and
-  cut the duplicated `position()` call; beyond that it needs the `pg_trgm` route described under "Search".
+  names. It grows linearly: expect tens of ms at a few thousand people. If it ever matters, the cheap win is to compute
+  `position()` once per name/term pair (it runs twice today: match and rank); beyond that it needs the `pg_trgm`
+  route described under "Search".
 - **Testing the SQL:** `TestCapacitySearchAgainstSeed` is opt-in (`CAPACITY_TEST_DATABASE_URL`). The shared
   database is not published on the host, so build the test binary for Linux (`CGO_ENABLED=0 GOOS=linux go test -c`),
   `docker cp` it into a throwaway `postgres:17` container on `capacity-grid-assignment_default` and run it there.
