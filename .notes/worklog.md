@@ -57,6 +57,21 @@ left unfinished. Append as you go; a line or two per entry is right.
 - The browser mock for PATCH keeps the change (so the background refetch agrees) and fails on 13 h, to try the
   failed-save path. Checked in the embedded browser with `window.fetch` patched from the console, as above.
 
+## Backend: GET /api/capacity (#2)
+
+- **Weekday count without a calendar table.** Within one ISO week Mon–Fri is the contiguous span
+  `[week_start, week_start + 4]`, so an assignment's weekdays in that week are the length of its overlap with that
+  span. Weekend days are never inside it. One query: `generate_series` weeks, assignments joined to the weeks they
+  touch, summed per person/week, then `people × weeks LEFT JOIN` so everyone gets every week. Sums stay `numeric`;
+  the cast to `float8` happens only on the final value.
+- **Verified against a brute-force day-by-day query** (one row per calendar day, weekdays only) for the default
+  range: all 1500 person-week values identical. Ana Ferreira 40 / 0 / 30, Eli Nakamura capacity 0 with 20 h.
+- **Error messages**: the date-format 400 used to dump the kin-openapi regex; now `from: must be a date in
+  YYYY-MM-DD format`, also for dates that match the pattern but do not exist (2026-02-30), which fail later in
+  parameter binding. `from > to` → `validation_failed`; more than 13 weeks after widening → `range_too_large`.
+- **Size**: 13 weeks × 500 people ≈ 455 KB of JSON, ~110 ms locally. At a few thousand people that is a few MB
+  uncompressed; gzip and people pagination are the next steps (pagination is deferred by decision).
+
 ## Search
 
 - **Server-side name search, no Postgres extension.** `GET /api/capacity` takes an optional `q`: case- and
