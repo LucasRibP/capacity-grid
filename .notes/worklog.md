@@ -70,3 +70,61 @@ left unfinished. Append as you go; a line or two per entry is right.
 - Ids above the 32-bit `serial` range return 404 (they cannot exist) rather than a 500 from parameter encoding.
 - Verified on the shared database: PATCH Eli Nakamura to 37.5 → `GET /api/capacity` (the #2 branch) showed 37.5 in
   every week with allocations unchanged; then restored to 0.
+
+## Frontend
+
+- **Grid cells are fill bars (#5)**, chosen by the human from three GitHub-style options: each person-week is a bar
+  filled to allocated / capacity, labelled "allocated / capacity". Over-allocation is red, striped, has a warning
+  icon and reads "over by N h" to screen readers, so it never depends on color. Any allocation on zero capacity
+  is over (Eli Nakamura); 0 / 0 is neutral. No division happens when capacity is 0.
+- **UI kit: shadcn/ui on Tailwind 4**, at the human's request. The compose `web` service runs `npm install` on
+  start, so new dependencies need no change to the run environment. Gotcha: `cn()` merges Tailwind classes, so a
+  custom utility named `bg-*` is dropped next to a `bg-<color>` class. The stripes utility is called `stripes`.
+- **Rows are virtualized** (`@tanstack/react-virtual`): production has a few thousand people and pagination is
+  deferred. jsdom has no layout, so `src/test/setup.ts` gives elements an 800 px client box. Without it the
+  virtualizer renders no rows in tests.
+- **Late responses**: the query is keyed by range with `keepPreviousData`, so an old range's response lands in
+  its own cache entry and never replaces the grid on screen; leaving a range aborts its request through the
+  signal the generated client forwards. A test makes the old range answer last and checks the grid.
+- **Tests run in `America/Sao_Paulo`** (`vite.config.ts` `test.env`), where parsing `YYYY-MM-DD` with `new Date`
+  shows the previous day, so that class of bug fails in CI.
+- The embedded browser in the desktop app blocks service workers, so MSW can't run there. To check against mocks,
+  `window.fetch` was patched from the console with `buildCapacityGrid` from `src/api/mocks/capacity.ts`.
+- **Range in the URL without a router (#6)**: `?from=&to=` read with `useSyncExternalStore`, written with
+  `pushState`, so the back button steps through ranges. A hand-edited link that is invalid, reversed or longer than
+  13 weeks is fixed before any request (default range, swapped, or clamped to the Sunday of the 13th ISO week) and
+  a notice says so. The URL keeps what was asked for until the next navigation, so the notice doesn't flash away.
+- **Picker**: shadcn Calendar (react-day-picker), weeks from Monday, `resetOnSelect` so the first click starts a
+  new range. Once a start is picked, days more than 13 ISO weeks away are disabled. Its local `Date`s are converted
+  through local calendar fields (`toLocalDate` / `fromLocalDate`), never through UTC.
+- Checked at production size by patching `fetch` with 3,000 people × 13 weeks: 25 rows in the DOM, sticky header
+  and name column hold at row 1,365.
+- **Weekly hours are edited in a popover (#7)**, opened from the "h/wk" next to each name, not by swapping the
+  cell for an input: a failed save must show the server's message and a retry, which does not fit a 44 px
+  virtualized row. Enter saves, Escape cancels; the popover cannot close while a save is in flight, so its outcome
+  is never hidden. On success the server's `weeklyHours` is written into every cached `['/capacity', …]` query and
+  they are invalidated in the background (`useUpdateWeeklyHours`). The input is text with `inputMode="decimal"`,
+  so the typed value is kept as typed on a failed save; a comma is accepted as the decimal separator.
+- Left as is: scrolling a row far enough out of view unmounts its editor (virtualization), dropping an unsaved
+  draft. A save already sent still lands in the cache.
+- The browser mock for PATCH keeps the change (so the background refetch agrees) and fails on 13 h, to try the
+  failed-save path. Checked in the embedded browser with `window.fetch` patched from the console, as above.
+
+- #7 checked against the real API (`api/` from this branch on :8082): saving Fatima Al-Rashid at 30 h turned her
+  30 / 20 week from red to 30 / 30 without a reload; restored to 20 afterwards. The PATCH mock's codes and messages
+  were aligned with the API's (bounds, missing value, unknown id, internal).
+
+
+## Error codes and messages (review follow-up to #12 and #13)
+
+- **`Error.code` is an enum in the contract:** `validation_failed`, `range_too_large`, `not_found`, `internal`.
+  Those are the only codes the API emits (`not_implemented` went away with the stubs). Go gets typed constants
+  (`oapi.ValidationFailed`, ...) so a typo no longer compiles; the web gets the `ErrorCode` union, and `ApiError.code`
+  is `ErrorCode | 'unknown'` (`unknown` when the body is not a contract error, e.g. a proxy page).
+- **One message style:** a short line, lowercase start, no trailing period, safe to show a manager, and
+  `field: reason` whenever a field is to blame (`weeklyHours: number must be at most 168`, `id: must be a positive
+  whole number`). Errors about the body as a whole use `body` as the field: missing (`body: value is required but
+  missing`), not JSON (`body: must be valid JSON`, was `failed to decode request body`), wrong Content-Type, unknown
+  property. Missing body properties say `weeklyHours: value is required but missing`, the same words kin-openapi uses
+  for a missing parameter. Messages without one field keep plain wording: the 13-week limit, `no person with id 9`,
+  `something went wrong, try again` (500), and the router's 404s.

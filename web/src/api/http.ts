@@ -1,9 +1,10 @@
-import type { Error as ApiErrorBody } from './generated/model'
+import type { Error as ApiErrorBody, ErrorCode } from './generated/model'
 
 /** Thrown for every non-2xx response, so TanStack Query puts it in `error`. */
 export class ApiError extends Error {
   readonly status: number
-  readonly code: string
+  /** The contract's code, or `unknown` when the body is not a contract error (e.g. a proxy page). */
+  readonly code: ErrorCode | 'unknown'
 
   constructor(status: number, body: Partial<ApiErrorBody> | undefined) {
     super(body?.message ?? `Request failed with status ${String(status)}`)

@@ -1,22 +1,102 @@
+import { CircleAlert, LoaderCircle, Users } from 'lucide-react'
+
+import type { ApiError } from '@/api/http'
+import { useCapacity } from '@/api/useCapacity'
+import { GridTable } from '@/capacity/GridTable'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+
 type Props = {
   from: string
   to: string
 }
 
-// CapacityGrid renders one row per person and one column per week, showing
-// how allocated each person is and making over-allocation obvious.
-//
-// It reads from GET /api/capacity?from=&to= — the response shape is whatever
-// you decided on in the API.
-//
-// A person's weekly hours are editable from the grid. After a save, every
-// number that depends on them must be right — without a full page reload.
-//
-// TODO: implement.
+// CapacityGrid renders one row per person and one column per week, showing how allocated each person is and
+// making over-allocation obvious.
 export function CapacityGrid({ from, to }: Props) {
+  const { data, error, isPending, isPlaceholderData, refetch } = useCapacity({ from, to })
+
   return (
-    <p>
-      Nothing here yet — {from} to {to}
-    </p>
+    <section aria-label="Capacity by person and week" className="flex flex-col gap-3">
+      <div className="flex min-h-6 items-center justify-between gap-4 text-xs text-muted-foreground">
+        <Legend />
+        <p aria-live="polite" className="flex items-center gap-1.5">
+          {isPlaceholderData && (
+            <>
+              <LoaderCircle aria-hidden className="size-3.5 animate-spin" />
+              Updating…
+            </>
+          )}
+        </p>
+      </div>
+      {error && (
+        <LoadError
+          error={error}
+          onRetry={() => {
+            void refetch()
+          }}
+        />
+      )}
+      {isPending && <GridSkeleton />}
+      {data &&
+        (data.people.length === 0 ? <EmptyGrid /> : <GridTable grid={data} busy={isPlaceholderData} />)}
+    </section>
+  )
+}
+
+function Legend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+      <span>Each cell: allocated / capacity hours</span>
+      <span className="flex items-center gap-1.5">
+        <span aria-hidden className="h-3 w-5 rounded-sm border bg-emerald-300 dark:bg-emerald-800" />
+        Used capacity
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span aria-hidden className="stripes h-3 w-5 rounded-sm bg-red-600 dark:bg-red-700" />
+        Over capacity
+      </span>
+    </div>
+  )
+}
+
+function LoadError({ error, onRetry }: { error: ApiError; onRetry: () => void }) {
+  return (
+    <Alert variant="destructive">
+      <CircleAlert aria-hidden />
+      <AlertTitle>Couldn't load capacity</AlertTitle>
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+        <span>{error.message}</span>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Retry
+        </Button>
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+function GridSkeleton() {
+  return (
+    <div role="status" aria-label="Loading capacity" className="flex flex-col gap-2 rounded-lg border p-3">
+      {Array.from({ length: 8 }, (_, i) => (
+        <div key={i} className="flex gap-2">
+          <Skeleton className="h-8 w-52" />
+          {Array.from({ length: 6 }, (_, j) => (
+            <Skeleton key={j} className="h-8 w-26" />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function EmptyGrid() {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center">
+      <Users aria-hidden className="size-6 text-muted-foreground" />
+      <p className="font-medium">No people to plan yet</p>
+      <p className="text-sm text-muted-foreground">People appear here once they're added to the team.</p>
+    </div>
   )
 }

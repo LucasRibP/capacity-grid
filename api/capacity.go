@@ -151,9 +151,9 @@ ORDER BY p.rank DESC, p.name, p.id, w.week_start`
 func (s *server) GetCapacity(ctx context.Context, req oapi.GetCapacityRequestObject) (oapi.GetCapacityResponseObject, error) {
 	r, err := newWeekRange(req.Params.From.Time, req.Params.To.Time)
 	if err != nil {
-		code := "validation_failed"
+		code := oapi.ValidationFailed
 		if errors.Is(err, errRangeTooLarge) {
-			code = "range_too_large"
+			code = oapi.RangeTooLarge
 		}
 		return oapi.GetCapacity400JSONResponse{ErrorJSONResponse: oapi.ErrorJSONResponse{Code: code, Message: err.Error()}}, nil
 	}
