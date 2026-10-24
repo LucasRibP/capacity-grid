@@ -1,17 +1,14 @@
 import { CapacityGrid } from './CapacityGrid'
-
-// The range the grid loads. Widen it if you want to see more.
-const FROM = '2025-12-29'
-const TO = '2026-01-16'
+import { RangeToolbar } from './capacity/RangeToolbar'
+import { useRangeParam } from './capacity/useRangeParam'
 
 export function App() {
+  const { range, notice, setRange } = useRangeParam()
   return (
-    <main>
-      <h1>Team capacity</h1>
-      <p className="range">
-        {FROM} to {TO}
-      </p>
-      <CapacityGrid from={FROM} to={TO} />
+    <main className="mx-auto flex max-w-[110rem] flex-col gap-4 p-6">
+      <h1 className="text-xl font-semibold tracking-tight">Team capacity</h1>
+      <RangeToolbar range={range} notice={notice} onChange={setRange} />
+      <CapacityGrid from={range.from} to={range.to} />
     </main>
   )
 }

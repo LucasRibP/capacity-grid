@@ -71,6 +71,35 @@ left unfinished. Append as you go; a line or two per entry is right.
 - Verified on the shared database: PATCH Eli Nakamura to 37.5 → `GET /api/capacity` (the #2 branch) showed 37.5 in
   every week with allocations unchanged; then restored to 0.
 
+## Frontend
+
+- **Grid cells are fill bars (#5)**, chosen by the human from three GitHub-style options: each person-week is a bar
+  filled to allocated / capacity, labelled "allocated / capacity". Over-allocation is red, striped, has a warning
+  icon and reads "over by N h" to screen readers, so it never depends on color. Any allocation on zero capacity
+  is over (Eli Nakamura); 0 / 0 is neutral. No division happens when capacity is 0.
+- **UI kit: shadcn/ui on Tailwind 4**, at the human's request. The compose `web` service runs `npm install` on
+  start, so new dependencies need no change to the run environment. Gotcha: `cn()` merges Tailwind classes, so a
+  custom utility named `bg-*` is dropped next to a `bg-<color>` class. The stripes utility is called `stripes`.
+- **Rows are virtualized** (`@tanstack/react-virtual`): production has a few thousand people and pagination is
+  deferred. jsdom has no layout, so `src/test/setup.ts` gives elements an 800 px client box. Without it the
+  virtualizer renders no rows in tests.
+- **Late responses**: the query is keyed by range with `keepPreviousData`, so an old range's response lands in
+  its own cache entry and never replaces the grid on screen; leaving a range aborts its request through the
+  signal the generated client forwards. A test makes the old range answer last and checks the grid.
+- **Tests run in `America/Sao_Paulo`** (`vite.config.ts` `test.env`), where parsing `YYYY-MM-DD` with `new Date`
+  shows the previous day, so that class of bug fails in CI.
+- The embedded browser in the desktop app blocks service workers, so MSW can't run there. To check against mocks,
+  `window.fetch` was patched from the console with `buildCapacityGrid` from `src/api/mocks/capacity.ts`.
+- **Range in the URL without a router (#6)**: `?from=&to=` read with `useSyncExternalStore`, written with
+  `pushState`, so the back button steps through ranges. A hand-edited link that is invalid, reversed or longer than
+  13 weeks is fixed before any request (default range, swapped, or clamped to the Sunday of the 13th ISO week) and
+  a notice says so. The URL keeps what was asked for until the next navigation, so the notice doesn't flash away.
+- **Picker**: shadcn Calendar (react-day-picker), weeks from Monday, `resetOnSelect` so the first click starts a
+  new range. Once a start is picked, days more than 13 ISO weeks away are disabled. Its local `Date`s are converted
+  through local calendar fields (`toLocalDate` / `fromLocalDate`), never through UTC.
+- Checked at production size by patching `fetch` with 3,000 people × 13 weeks: 25 rows in the DOM, sticky header
+  and name column hold at row 1,365.
+
 ## Error codes and messages (review follow-up to #12 and #13)
 
 - **`Error.code` is an enum in the contract:** `validation_failed`, `range_too_large`, `not_found`, `internal`.
