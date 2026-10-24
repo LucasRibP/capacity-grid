@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
-import { MAX_SEARCH_LENGTH, normalizeSearch, useSearchParam } from './useSearchParam'
+import { MAX_SEARCH_LENGTH, normalizeSearch, usePublishSearchPending, useSearchParam } from './useSearchParam'
 
 export const SEARCH_DEBOUNCE_MS = 300
 
@@ -24,6 +24,8 @@ export function PeopleSearch() {
     setShownQ(q)
     if (normalizeSearch(text) !== q) setText(q)
   }
+
+  usePublishSearchPending(normalizeSearch(text) !== q)
 
   useEffect(() => {
     const next = normalizeSearch(text)

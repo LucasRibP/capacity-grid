@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { useLocationSearch, writeSearchParams } from '@/lib/locationSearch'
 
@@ -27,4 +27,40 @@ export function useSearchParam() {
   }, [])
 
   return { q, setQ }
+}
+
+// Whether the search box holds text that has not reached `?q=` yet (the debounce is running). The box and the grid
+// are siblings, so the box publishes it here instead of threading it through the page.
+let searchPending = false
+const pendingListeners = new Set<() => void>()
+
+function setSearchPending(pending: boolean) {
+  if (pending === searchPending) return
+  searchPending = pending
+  for (const listener of pendingListeners) listener()
+}
+
+function subscribePending(listener: () => void) {
+  pendingListeners.add(listener)
+  return () => {
+    pendingListeners.delete(listener)
+  }
+}
+
+/** True while a typed search is waiting for its debounce; the request is about to change. */
+export function useSearchPending() {
+  return useSyncExternalStore(subscribePending, () => searchPending)
+}
+
+/** Called by the search box with whether its text is ahead of the URL. Unmounting clears it. */
+export function usePublishSearchPending(pending: boolean) {
+  useEffect(() => {
+    setSearchPending(pending)
+  }, [pending])
+  useEffect(
+    () => () => {
+      setSearchPending(false)
+    },
+    [],
+  )
 }
