@@ -129,6 +129,74 @@ left unfinished. Append as you go; a line or two per entry is right.
   for a missing parameter. Messages without one field keep plain wording: the 13-week limit, `no person with id 9`,
   `something went wrong, try again` (500), and the router's 404s.
 
+## Backend: compressed responses (#14)
+
+- `klauspost/compress/gzhttp` wraps the whole handler in `newHandler`. Measured on :8081 against the shared database,
+  `GET /api/capacity?from=2025-12-29&to=2026-03-29` (500 people x 13 weeks): **455,863 bytes plain, 26,579 bytes with
+  `Accept-Encoding: gzip`** (~17x smaller). Same numbers through the Vite proxy on :3001, which passes the encoding
+  through untouched. A few thousand people scale that to ~2-3 MB plain, ~150 KB gzipped.
+- **zstd comes for free.** gzhttp v1.20 also negotiates zstd, and Chrome asks for it: the browser got the same response
+  in 24,358 bytes with `Content-Encoding: zstd`. Left on: every current browser decodes it and gzip remains the
+  fallback for everything else.
+- Bodies under 1 KB (every error response) are sent uncompressed, the library default; `Vary: Accept-Encoding` is set
+  on every response, so a cache never hands a compressed body to a client that did not ask for it. Errors were
+  checked with and without the header: valid `{code, message}` JSON either way.
+
+## Backend: name search in GET /api/capacity (#18)
+
+- **One normalisation for both sides.** Names and terms are folded by the same SQL expression, applied once to a
+  `UNION ALL` of both (`folded` CTE), rather than written twice and left to drift. It runs `normalize(…, NFC)` first
+  (built in since PG 13, not an extension), so a decomposed "ø" typed on some keyboards still matches.
+- **Fold map as parameters.** `translate()`'s from/to strings are Go constants passed as `$4`/`$5`, so a unit test
+  checks they stay aligned letter by letter (one missing letter silently shifts every fold after it). Coverage: every
+  non-ASCII Latin letter in the seed (incl. Vietnamese ễ ị ơ ư, Croatian/Polish ć č ś š), common Latin ones and
+  Greek tonos/final sigma. Cyrillic, Hebrew, Arabic, CJK and Hangul are only lowercased: "петрова" finds Нина Петрова,
+  "petrova" does not (no transliteration).
+- **Word start = name start or after a space**, as the issue says. Hyphens and apostrophes are not boundaries, so
+  "woo" matches "Hyun-woo" but does not rank as a word start.
+- **Terms split in Go** (`strings.Fields`) and sent as a never-nil array: pgx sends a nil slice as NULL, and
+  `cardinality(NULL) = 0` is not true, which would have turned a blank `q` into "nobody".
+- The allocation scan is restricted to the matching people, so a search reads only their assignments
+  (`assignments_person_id_idx`). Without `q` the response is byte-identical to `main` (checked on three ranges).
+- **Cost:** EXPLAIN ANALYZE of `q=soren hag` on the default range: 13 ms, ~11 ms of it folding and matching 500
+  names. It grows linearly: expect tens of ms at a few thousand people. If it ever matters, the cheap win is to compute
+  `position()` once per name/term pair (it runs twice today: match and rank); beyond that it needs the `pg_trgm`
+  route described under "Search".
+- **Testing the SQL:** `TestCapacitySearchAgainstSeed` is opt-in (`CAPACITY_TEST_DATABASE_URL`). The shared
+  database is not published on the host, so build the test binary for Linux (`CGO_ENABLED=0 GOOS=linux go test -c`),
+  `docker cp` it into a throwaway `postgres:17` container on `capacity-grid-assignment_default` and run it there.
+  (A bind mount from the macOS temp dir did not work under Colima.)
+- The shared stack on :8080 still runs a pre-#12 image (`not_implemented`), so comparisons were made against a
+  throwaway build of `origin/main` on :8083.
+
+## Row virtualization (#8)
+
+- Rows were already virtualized since #5 (`@tanstack/react-virtual`, 44 px rows, overscan 10). What #8 still needed
+  was the editor: scrolling its row out of view unmounted it and dropped a save in flight, its error and the
+  typed value.
+- **A row whose editor is open stays mounted.** `WeeklyHoursEditor` reports open/close; `GridTable` adds those
+  rows to the virtualizer's range (`rangeExtractor`) and puts a spacer `<tr>` in each gap. The editor cannot close
+  mid-save and only closes on success or cancel, so "open" covers pending and failed. Focus inside the popover
+  survives too. Chosen over lifting editor and mutation state out of the row: that meant changing
+  `useUpdateWeeklyHours` (shared with the #19 work) or tracking one mutation per person by hand.
+- Measured with 3,000 people × 13 weeks (`src/test/largeGrid.ts`, and `fetch` patched in the embedded browser):
+
+  | | rows in DOM | cells | jsdom render |
+  |---|---|---|---|
+  | All rows (virtualizer forced to render every index) | 3,000 | 39,000 | ~27 s |
+  | Virtualized, jsdom (800 px box) | 29 | 377 | ~0.4 s |
+  | Virtualized, browser (590 px scroller) | 24 | 312 | |
+  | Browser, scrolled to row 2,000 with an editor open on row 1 | 35 (34 + the editing row) | | |
+
+  With the real API (500 people, 3 weeks): 24 rows. Sticky header and name column hold at row 2,000 and with a
+  horizontal scroll.
+- Left as is: a focused trigger (not an open editor) still loses focus to `body` if a mouse scroll takes its row
+  out of view; Tab and keyboard scrolling keep it in view, so only the mouse case is affected. Also, the id of a
+  person who leaves the grid while their editor is open (e.g. filtered out by search) stays in the editing set;
+  it maps to no row, so it costs nothing until that person comes back, where their row stays mounted until the
+  editor is opened and closed.
+- The shared stack on :8080 still serves the pre-#12 stub, so the browser check used `api/` from `main` on :8081.
+
 ## Frontend: name search (#19)
 
 - **The input is never debounced, only the query.** `PeopleSearch` keeps its own text and writes the trimmed value to
