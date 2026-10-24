@@ -8,14 +8,14 @@ describe('http', () => {
   it('turns a contract error body into an ApiError the UI can show', async () => {
     server.use(
       mswHttp.patch('*/api/people/:id', () =>
-        HttpResponse.json({ code: 'not_found', message: 'Person 9 does not exist.' }, { status: 404 }),
+        HttpResponse.json({ code: 'not_found', message: 'no person with id 9' }, { status: 404 }),
       ),
     )
 
     const error = await http('/people/9', { method: 'PATCH' }).catch((e: unknown) => e)
 
     expect(error).toBeInstanceOf(ApiError)
-    expect(error).toMatchObject({ status: 404, code: 'not_found', message: 'Person 9 does not exist.' })
+    expect(error).toMatchObject({ status: 404, code: 'not_found', message: 'no person with id 9' })
   })
 
   it('still fails cleanly when the body is not JSON (e.g. a proxy error page)', async () => {

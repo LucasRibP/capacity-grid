@@ -9,10 +9,11 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { ErrorCode } from './errorCode';
 
 export interface Error {
-  /** Machine-readable, e.g. validation_failed, range_too_large, not_found, internal. */
-  code: string;
-  /** Human-readable, safe to show to a manager. */
+  /** Machine-readable. validation_failed: a parameter or the body breaks the contract or a rule (400). range_too_large: the requested range covers more than 13 weeks (400). not_found: no such route or person (404). internal: the server failed (500). */
+  code: ErrorCode;
+  /** Human-readable and safe to show to a manager: one short line, lowercase start, no trailing period. Usually `field: reason`, e.g. `weeklyHours: number must be at most 168`. */
   message: string;
 }
