@@ -13,6 +13,8 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgconn/ctxwatch"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/klauspost/compress/gzhttp"
 	middleware "github.com/oapi-codegen/nethttp-middleware"
@@ -39,7 +41,17 @@ func run(ctx context.Context) error {
 		dsn = "postgres://capacity:capacity@localhost:5432/capacity?sslmode=disable" //nolint:gosec // local dev default, same as docker-compose.yml
 	}
 
-	db, err := pgxpool.New(ctx, dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return fmt.Errorf("parse database url: %w", err)
+	}
+	// pgx's default reaction to a cancelled ctx is to drop the connection, which leaves Postgres
+	// running the query until it next writes to the socket. A cancel request stops it in Postgres
+	// too; the deadline is the fallback if the cancel request is lost.
+	cfg.ConnConfig.BuildContextWatcherHandler = func(conn *pgconn.PgConn) ctxwatch.Handler {
+		return &pgconn.CancelRequestContextWatcherHandler{Conn: conn, DeadlineDelay: time.Second}
+	}
+	db, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -83,7 +95,15 @@ func newHandler(s oapi.StrictServerInterface) (http.Handler, error) {
 			RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
 				writeError(w, http.StatusBadRequest, oapi.ValidationFailed, err.Error())
 			},
-			ResponseErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+			ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+				// The grid aborts a request when the manager navigates or types in the search: the
+				// handler's error is then the cancellation, not a server fault. Nobody reads the
+				// response, so it carries only nginx's "client closed request" status, for any
+				// access log or proxy in front.
+				if r.Context().Err() != nil {
+					w.WriteHeader(statusClientClosedRequest)
+					return
+				}
 				log.Printf("handler error: %v", err)
 				writeError(w, http.StatusInternalServerError, oapi.Internal, "something went wrong, try again")
 			},
@@ -198,6 +218,9 @@ func paramReason(name string) string {
 	}
 	return dateReason
 }
+
+// statusClientClosedRequest is nginx's 499: the client went away before the response was written.
+const statusClientClosedRequest = 499
 
 func writeError(w http.ResponseWriter, status int, code oapi.ErrorCode, message string) {
 	writeJSON(w, status, oapi.Error{Code: code, Message: message})
