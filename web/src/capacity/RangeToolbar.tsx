@@ -14,6 +14,7 @@ import {
   weekStartsBetween,
 } from '@/lib/dates'
 
+import { PeopleSearch } from './PeopleSearch'
 import { lastAllowedDay, MAX_WEEKS, normalizeRange, type Range, shiftRange } from './range'
 
 type Props = {
@@ -51,6 +52,7 @@ export function RangeToolbar({ range, notice, onChange }: Props) {
         <span className="text-sm text-muted-foreground tabular-nums">
           {weekCount} {weekCount === 1 ? 'week' : 'weeks'}
         </span>
+        <PeopleSearch />
       </div>
       {notice && (
         <p role="status" className="flex items-center gap-1.5 text-sm text-muted-foreground">

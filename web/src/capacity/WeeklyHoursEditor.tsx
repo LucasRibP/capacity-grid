@@ -12,12 +12,14 @@ type Props = {
   personId: number
   name: string
   weeklyHours: number
+  /** Told whenever the editor opens or closes, so a virtualized grid can keep its row mounted while it is open. */
+  onOpenChange?: (open: boolean) => void
 }
 
 // "40 h/wk" next to a person's name, which opens a small editor. Enter saves, Escape cancels. The grid changes only
 // once the server confirms; a failed save keeps the editor open with the typed value, the server's message and a
 // retry.
-export function WeeklyHoursEditor({ personId, name, weeklyHours }: Props) {
+export function WeeklyHoursEditor({ personId, name, weeklyHours, onOpenChange }: Props) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [invalid, setInvalid] = useState(false)
@@ -25,9 +27,14 @@ export function WeeklyHoursEditor({ personId, name, weeklyHours }: Props) {
   const inputId = useId()
   const messageId = useId()
 
+  function changeOpen(next: boolean) {
+    setOpen(next)
+    onOpenChange?.(next)
+  }
+
   function openEditor(next: boolean) {
     if (isPending) return // closing mid-save would hide its outcome
-    setOpen(next)
+    changeOpen(next)
     if (next) {
       setDraft(formatHours(weeklyHours))
       setInvalid(false)
@@ -40,14 +47,14 @@ export function WeeklyHoursEditor({ personId, name, weeklyHours }: Props) {
     setInvalid(hours === undefined)
     if (hours === undefined) return
     if (hours === weeklyHours) {
-      setOpen(false)
+      changeOpen(false)
       return
     }
     mutate(
       { id: personId, data: { weeklyHours: hours } },
       {
         onSuccess: () => {
-          setOpen(false)
+          changeOpen(false)
         },
       },
     )

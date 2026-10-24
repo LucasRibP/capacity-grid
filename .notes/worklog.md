@@ -169,6 +169,54 @@ left unfinished. Append as you go; a line or two per entry is right.
 - The shared stack on :8080 still runs a pre-#12 image (`not_implemented`), so comparisons were made against a
   throwaway build of `origin/main` on :8083.
 
+## Row virtualization (#8)
+
+- Rows were already virtualized since #5 (`@tanstack/react-virtual`, 44 px rows, overscan 10). What #8 still needed
+  was the editor: scrolling its row out of view unmounted it and dropped a save in flight, its error and the
+  typed value.
+- **A row whose editor is open stays mounted.** `WeeklyHoursEditor` reports open/close; `GridTable` adds those
+  rows to the virtualizer's range (`rangeExtractor`) and puts a spacer `<tr>` in each gap. The editor cannot close
+  mid-save and only closes on success or cancel, so "open" covers pending and failed. Focus inside the popover
+  survives too. Chosen over lifting editor and mutation state out of the row: that meant changing
+  `useUpdateWeeklyHours` (shared with the #19 work) or tracking one mutation per person by hand.
+- Measured with 3,000 people × 13 weeks (`src/test/largeGrid.ts`, and `fetch` patched in the embedded browser):
+
+  | | rows in DOM | cells | jsdom render |
+  |---|---|---|---|
+  | All rows (virtualizer forced to render every index) | 3,000 | 39,000 | ~27 s |
+  | Virtualized, jsdom (800 px box) | 29 | 377 | ~0.4 s |
+  | Virtualized, browser (590 px scroller) | 24 | 312 | |
+  | Browser, scrolled to row 2,000 with an editor open on row 1 | 35 (34 + the editing row) | | |
+
+  With the real API (500 people, 3 weeks): 24 rows. Sticky header and name column hold at row 2,000 and with a
+  horizontal scroll.
+- Left as is: a focused trigger (not an open editor) still loses focus to `body` if a mouse scroll takes its row
+  out of view; Tab and keyboard scrolling keep it in view, so only the mouse case is affected. Also, the id of a
+  person who leaves the grid while their editor is open (e.g. filtered out by search) stays in the editing set;
+  it maps to no row, so it costs nothing until that person comes back, where their row stays mounted until the
+  editor is opened and closed.
+- The shared stack on :8080 still serves the pre-#12 stub, so the browser check used `api/` from `main` on :8081.
+
+## Frontend: name search (#19)
+
+- **The input is never debounced, only the query.** `PeopleSearch` keeps its own text and writes the trimmed value to
+  `?q=` after 300 ms of quiet; clearing (the ✕, Escape, or "Clear search" in the empty grid) applies at once. When
+  the URL changes without typing (back button, the empty state's button) the box follows it.
+- **`q` is written with `replaceState`, the range with `pushState`.** One history entry per pause in typing would
+  bury the back button; a search reads as a filter on the current page. Range navigation keeps whatever `q` is set.
+  Both params now share one URL store (`lib/locationSearch.ts`).
+- **A blank search is left out of the query params**, so the unfiltered grid keeps its single `['/capacity',
+  {from, to}]` cache entry. The post-save patch already matched every `['/capacity', …]` key, searched ones included;
+  a test now proves it through the UI.
+- **"No one matches “q”" is a different state from "No people to plan yet"**, with a button to clear the search.
+- The MSW handler filters by `q` roughly like the contract (folds case and accents with NFD plus a few letters NFD
+  leaves alone, every term a substring, word-start matches first). Søren Hagen was added to the mock people to match
+  the issue's example.
+- Browser check was partial: the embedded browser blocks MSW's service worker, and the shared stack on :8080
+  answered `501 not_implemented` for `/api/capacity` (an image older than `main`). The network log still showed one
+  `GET /api/capacity?…&q=soren+hag` after typing nine characters, and `q` in the URL. Rows against the real search
+  are to be checked once #18 lands.
+
 ## Backend: cancel the capacity query when the client goes away (#15)
 
 - **The ctx already reached every pgx call** in `GetCapacity` and `UpdatePerson` (no `context.Background()` outside
