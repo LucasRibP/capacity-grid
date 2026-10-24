@@ -24,7 +24,7 @@ export function WeekCell({ allocatedHours, capacityHours }: Props) {
         aria-hidden
         className={cn(
           'absolute inset-y-0 left-0',
-          over ? 'bg-hatch bg-red-600 dark:bg-red-700' : 'bg-emerald-300 dark:bg-emerald-800',
+          over ? 'stripes bg-red-600 dark:bg-red-700' : 'bg-emerald-300 dark:bg-emerald-800',
         )}
         style={{ width: `${String(fill * 100)}%` }}
       />

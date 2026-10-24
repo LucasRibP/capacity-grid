@@ -130,6 +130,6 @@
 }
 
 /* Diagonal stripes on over-allocated cells, so over-allocation does not rely on color alone. */
-@utility bg-hatch {
-  background-image: repeating-linear-gradient(-45deg, transparent 0 5px, rgb(255 255 255 / 0.22) 5px 8px);
+@utility stripes {
+  background-image: repeating-linear-gradient(-45deg, transparent 0 4px, rgb(255 255 255 / 0.25) 4px 7px);
 }

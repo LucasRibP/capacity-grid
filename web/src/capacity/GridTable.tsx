@@ -34,14 +34,14 @@ export function GridTable({ grid, busy }: Props) {
     <div
       ref={scrollRef}
       className={cn(
-        'max-h-[calc(100vh-11rem)] overflow-auto rounded-lg border transition-opacity',
+        'max-h-[calc(100vh-11rem)] w-fit max-w-full overflow-auto rounded-lg border transition-opacity',
         busy && 'opacity-60',
       )}
     >
       <table
         aria-busy={busy}
         aria-rowcount={grid.people.length + 1}
-        className="w-max min-w-full border-separate border-spacing-0 text-sm"
+        className="w-max border-separate border-spacing-0 text-sm"
       >
         <thead>
           <tr aria-rowindex={1}>

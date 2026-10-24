@@ -54,7 +54,7 @@ function Legend() {
         Used capacity
       </span>
       <span className="flex items-center gap-1.5">
-        <span aria-hidden className="bg-hatch h-3 w-5 rounded-sm bg-red-600 dark:bg-red-700" />
+        <span aria-hidden className="stripes h-3 w-5 rounded-sm bg-red-600 dark:bg-red-700" />
         Over capacity
       </span>
     </div>
