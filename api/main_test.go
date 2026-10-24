@@ -31,6 +31,8 @@ func TestHandlerValidatesRequestsAgainstContract(t *testing.T) {
 		{"patch with negative hours", http.MethodPatch, "/api/people/1", `{"weeklyHours":-1}`, http.StatusBadRequest, "validation_failed", ""},
 		{"patch with unknown field", http.MethodPatch, "/api/people/1", `{"weeklyHours":10,"name":"x"}`, http.StatusBadRequest, "validation_failed", ""},
 		{"patch with non-numeric id", http.MethodPatch, "/api/people/abc", `{"weeklyHours":10}`, http.StatusBadRequest, "validation_failed", ""},
+		{"patch without body", http.MethodPatch, "/api/people/1", "", http.StatusBadRequest, "validation_failed", ""},
+		{"patch id beyond any person", http.MethodPatch, "/api/people/3000000000", `{"weeklyHours":10}`, http.StatusNotFound, "not_found", "No person with id 3000000000."},
 		{"unknown route", http.MethodGet, "/api/nope", "", http.StatusNotFound, "not_found", ""},
 	}
 	for _, tc := range cases {
