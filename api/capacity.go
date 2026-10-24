@@ -87,7 +87,10 @@ func searchTerms(q *string) []string {
 
 // capacityQuery returns one row per person per week, ordered by relevance, name, id, week.
 //
-// Weeks are generated in SQL so people with no assignment still get a row (LEFT JOIN → 0).
+// Weeks are generated in SQL so people with no assignment still get a row (LEFT JOIN → 0). They
+// come from an integer series, not generate_series(date, date, interval): the planner estimates an
+// integer series exactly (13 rows, not 1,000), and the inflated estimate was enough to cross
+// jit_above_cost and spend ~250 ms compiling a 35 ms query.
 // An assignment contributes hours_per_day for every weekday it covers in a week: within one week,
 // Mon..Fri is the contiguous span [week_start, week_start + 4], so the weekday count is the length
 // of the overlap between that span and [start_date, end_date]. Weekend days fall outside the span
@@ -95,7 +98,9 @@ func searchTerms(q *string) []string {
 // Sums stay numeric until the scan; the WHERE clause keeps the scan to the requested range.
 //
 // Search ($3 = terms, $4/$5 = fold map): names and terms go through the one normalisation in
-// `folded` (NFC, lowercase, accents folded), so the two sides cannot drift apart. A person matches
+// `folded` (NFC, lowercase, accents folded), so the two sides cannot drift apart. The terms are then
+// split into their own small MATERIALIZED CTE so `matched` joins names × terms; joining `folded`
+// with itself rescanned every name per name, quadratic in the roster. A person matches
 // when every term is a substring of the folded name; position() rather than LIKE, so % and _ are
 // literal. rank counts the terms that start a word (name start or after a space) and is 0 for
 // everyone when there are no terms, which leaves the order by name, id. No index can serve a
@@ -103,7 +108,8 @@ func searchTerms(q *string) []string {
 // join, and the scan is milliseconds at a few thousand names.
 const capacityQuery = `
 WITH weeks AS (
-  SELECT generate_series($1::date, $2::date - 6, interval '7 days')::date AS week_start
+  SELECT $1::date + 7 * i AS week_start
+  FROM generate_series(0, ($2::date - $1::date) / 7) AS i
 ),
 folded AS (
   SELECT src, key,
@@ -115,11 +121,14 @@ folded AS (
     SELECT 'term', ord, term FROM unnest($3::text[]) WITH ORDINALITY AS t(term, ord)
   ) raw
 ),
+terms AS MATERIALIZED (
+  SELECT s FROM folded WHERE src = 'term'
+),
 matched AS (
   SELECT n.key AS person_id, count(*) FILTER (WHERE position(' ' || t.s IN ' ' || n.s) > 0) AS rank
   FROM folded n
-  CROSS JOIN folded t
-  WHERE n.src = 'name' AND t.src = 'term'
+  CROSS JOIN terms t
+  WHERE n.src = 'name'
   GROUP BY n.key
   HAVING bool_and(position(t.s IN n.s) > 0)
 ),
