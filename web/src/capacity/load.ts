@@ -20,3 +20,16 @@ export function weekLoad(allocatedHours: number, capacityHours: number): WeekLoa
 export function formatHours(hours: number): string {
   return String(Math.round(hours * 10) / 10)
 }
+
+/** Contract bounds for `UpdatePerson.weeklyHours`; the editor checks them before sending. */
+export const MIN_WEEKLY_HOURS = 0
+export const MAX_WEEKLY_HOURS = 168
+
+/** The typed hours as a number, or undefined when they are not a number within the contract's bounds. */
+export function parseWeeklyHours(text: string): number | undefined {
+  const trimmed = text.trim().replace(',', '.')
+  if (trimmed === '') return undefined
+  const hours = Number(trimmed)
+  if (!Number.isFinite(hours) || hours < MIN_WEEKLY_HOURS || hours > MAX_WEEKLY_HOURS) return undefined
+  return hours
+}

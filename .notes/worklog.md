@@ -99,6 +99,21 @@ left unfinished. Append as you go; a line or two per entry is right.
   through local calendar fields (`toLocalDate` / `fromLocalDate`), never through UTC.
 - Checked at production size by patching `fetch` with 3,000 people × 13 weeks: 25 rows in the DOM, sticky header
   and name column hold at row 1,365.
+- **Weekly hours are edited in a popover (#7)**, opened from the "h/wk" next to each name, not by swapping the
+  cell for an input: a failed save must show the server's message and a retry, which does not fit a 44 px
+  virtualized row. Enter saves, Escape cancels; the popover cannot close while a save is in flight, so its outcome
+  is never hidden. On success the server's `weeklyHours` is written into every cached `['/capacity', …]` query and
+  they are invalidated in the background (`useUpdateWeeklyHours`). The input is text with `inputMode="decimal"`,
+  so the typed value is kept as typed on a failed save; a comma is accepted as the decimal separator.
+- Left as is: scrolling a row far enough out of view unmounts its editor (virtualization), dropping an unsaved
+  draft. A save already sent still lands in the cache.
+- The browser mock for PATCH keeps the change (so the background refetch agrees) and fails on 13 h, to try the
+  failed-save path. Checked in the embedded browser with `window.fetch` patched from the console, as above.
+
+- #7 checked against the real API (`api/` from this branch on :8082): saving Fatima Al-Rashid at 30 h turned her
+  30 / 20 week from red to 30 / 30 without a reload; restored to 20 afterwards. The PATCH mock's codes and messages
+  were aligned with the API's (bounds, missing value, unknown id, internal).
+
 
 ## Error codes and messages (review follow-up to #12 and #13)
 

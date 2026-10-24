@@ -5,8 +5,8 @@ import type { CapacityGrid } from '@/api/generated/model'
 import { formatDay, yearOf } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 
-import { formatHours } from './load'
 import { WeekCell } from './WeekCell'
+import { WeeklyHoursEditor } from './WeeklyHoursEditor'
 
 const ROW_HEIGHT = 44
 
@@ -74,11 +74,13 @@ export function GridTable({ grid, busy }: Props) {
                   scope="row"
                   className="sticky left-0 z-10 border-b bg-background px-3 text-left font-normal"
                 >
-                  <div className="flex items-baseline justify-between gap-3">
+                  <div className="flex items-center justify-between gap-3">
                     <span className="truncate font-medium">{person.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                      {formatHours(person.weeklyHours)} h/wk
-                    </span>
+                    <WeeklyHoursEditor
+                      personId={person.id}
+                      name={person.name}
+                      weeklyHours={person.weeklyHours}
+                    />
                   </div>
                 </th>
                 {person.weeks.map((week) => (
