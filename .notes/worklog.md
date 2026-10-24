@@ -216,3 +216,23 @@ left unfinished. Append as you go; a line or two per entry is right.
   answered `501 not_implemented` for `/api/capacity` (an image older than `main`). The network log still showed one
   `GET /api/capacity?…&q=soren+hag` after typing nine characters, and `q` in the URL. Rows against the real search
   are to be checked once #18 lands.
+
+## Backend: cancel the capacity query when the client goes away (#15)
+
+- **The ctx already reached every pgx call** in `GetCapacity` and `UpdatePerson` (no `context.Background()` outside
+  `run`). That alone did not stop the work in Postgres: pgx's default reaction to a cancelled ctx is to set a past
+  deadline on the socket and drop the connection, and Postgres keeps running the statement until it next writes to
+  the client. The pool now uses `pgconn.CancelRequestContextWatcherHandler`, which sends a cancel request (the
+  deadline stays as a 1 s fallback). Measured on :8081: requests aborted with `curl --max-time 0.01` show
+  `ERROR: canceling statement due to user request` in the db log, one per request; a build of `origin/main` showed none.
+- **Client gone = the request ctx is done**, not "the error is `context.Canceled`". pgx can surface a cancellation as
+  a closed-connection error that wraps neither `Canceled` nor `DeadlineExceeded`; the request ctx is the reliable
+  signal. Cost: a genuine fault that coincides with an abort is not logged. Accepted: nobody would see that response,
+  and the next request hits the same fault. There is no server-side request timeout today, so `DeadlineExceeded`
+  only comes from the client side through this same path.
+- **Status: 499 with no body, nothing logged.** The client cannot read anything we write, so the only reader is
+  whatever sits in front (access log, proxy metrics). nginx's 499 "client closed request" tells those readers it was
+  not a server failure, where an implicit 200 would look like a success and a 500 like a fault. It is not in the
+  contract on purpose: no client ever receives it.
+- Before (origin/main build, 20 aborted requests): 20 `handler error: read capacity: context canceled` lines.
+  After: no log lines.
