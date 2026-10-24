@@ -27,14 +27,16 @@ few thousand people and up to two years of history; the seed is smaller. Design 
 - **NEVER edit `db/schema.sql` or `db/seed.sql`.** The data is fixed input.
 - **NEVER change `docker-compose.yml`, the `Dockerfile`s, or the `Makefile`.** Submissions that alter the run
   environment cannot be built by the reviewers.
-- **NEVER touch anything outside this repository.** No `../` paths, no other projects, no templates, no global
-  config. Everything you need is in here.
-- **Stay in your track.** Several agents work in this checkout at the same time:
+- **NEVER touch anything outside your worktree.** No `../` paths, no other worktrees, no other projects, no
+  templates, no global config. Everything you need is in here.
+- **Stay in your track.** Several agents work in parallel, each in its own worktree, and their PRs must merge
+  without conflicts:
   - Backend agent: `api/` only, except `api/oapi/oapi.gen.go`.
   - Frontend agent: `web/` only, except `web/src/api/generated/`.
-  - `contract/` and all generated code change only in a dedicated contract change made by the coordinating
-    session. If your issue needs a contract change, stop and report what you need and why. Do not edit it.
-  - `.notes/worklog.md` is shared and append-only: add your entries at the end, never rewrite others'.
+  - `contract/` and all generated code change only in a dedicated contract PR made by the coordinating session.
+    If your issue needs a contract change, stop and report what you need and why. Do not edit it.
+  - `.notes/worklog.md` is shared and append-only: add your entries at the end, never rewrite others'. If it
+    conflicts when merging `main`, keep both sides.
 - **Product decisions belong to the human.** The agreed ones are listed below. If your task needs a product decision
   that is not listed (what the manager sees, what a number means, a rule about the data), stop and ask instead of
   deciding. Implementation choices inside those decisions are yours; record the non-obvious ones in the worklog.
@@ -71,12 +73,41 @@ Source of truth: the "Planning" section of `.notes/worklog.md` and the issues. D
 
 ## Git Workflow
 
-- All work happens on **`feat/capacity-view`**. Agents share this checkout, so **never** switch branches, rebase,
-  reset, stash, amend, or force-push.
-- Stage only your own files, by path (`git add api/capacity.go api/capacity_test.go`). Never `git add -A` or
-  `git add .`: another agent's half-done work may be in the tree. Run `git status` before every commit.
-- Commit after each green step. Small commits; never squash. The history is reviewed.
-- Push only when the human asks. Do not close issues; report the "Done when" evidence instead.
+`main` is the integration branch. Nobody commits to it directly; everything reaches it through a PR.
+
+1. **One agent, one worktree, one branch, one PR.** Each agent works in its own git worktree with its own branch
+   created from the latest `main` (the desktop app creates both when it opens a session; otherwise
+   `git worktree add .claude/worktrees/<name> -b <type>/<issue>-<slug> origin/main`). Stay in that worktree.
+2. A new worktree has no `node_modules`: run `npm ci` in `web/` before any frontend command.
+3. Commit after each green step. Small commits; never squash. The history is reviewed.
+4. Stage files by path and run `git status` before every commit. Never commit generated files you did not mean to
+   regenerate, `.env.local`, or anything outside your track.
+5. If `main` moved while you worked, bring it in with `git fetch origin && git merge origin/main` (no rebase, no
+   force-push), re-run your check, then push.
+6. When the issue's "Done when" is met and your check is green: `git push -u origin HEAD`, then open a PR to `main`:
+   `gh pr create --repo LucasRibP/capacity-grid --base main`. One PR per issue unless the human says otherwise.
+7. Never merge your own PR, never push to `main`, never close issues. The human reviews and merges.
+8. Never touch other branches or worktrees, never `git stash` (the stash is shared across worktrees), never
+   force-push.
+
+### Pull requests
+
+Title in the commit format (`feat(api): serve allocated hours per person per week`). Body in English:
+
+```
+## Summary
+<What changed and why, in 2–4 bullets. Decisions made and alternatives rejected.>
+
+## Done when
+- [x] <each item from the issue> — <evidence: command output, curl result, test name, screenshot>
+
+## Not done / follow-ups
+<Anything left out on purpose, or "None".>
+
+Closes #<issue>
+
+🤖 Generated with <agent name>
+```
 
 ### Commit messages
 
@@ -109,15 +140,33 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
 ## Running It
 
-The human usually keeps `make up` running in the foreground. Do not stop it.
+One shared stack runs from the main checkout (`make up`): web on http://localhost:3000, API on
+http://localhost:8080, Postgres on the `capacity-grid-assignment_default` Docker network. It serves what is on
+`main`. **Do not stop it, and never run `make up` or `docker compose` from a worktree**: the ports would clash and
+Compose would start a second database.
 
-- Web on http://localhost:3000, API on http://localhost:8080. `GET /api/health` reports the seeded people count.
-- Frontend changes hot-reload.
-- After a backend change, rebuild only the API: `docker compose up -d --build api`.
-- After adding an npm dependency, reinstall inside the container: `docker compose restart web`.
-- Database shell: `docker compose exec db psql -U capacity -d capacity`. Read-only queries only.
+To run your own branch next to it:
 
-If nothing is running: `make up` (foreground; run it in the background from an agent).
+- **Backend agent: your API on :8081**, against the shared database (rebuild and rerun after each change):
+
+  ```bash
+  docker rm -f capacity-api-<issue> 2>/dev/null
+  docker build -q -t capacity-api-<issue> api
+  docker run --rm -d --name capacity-api-<issue> --network capacity-grid-assignment_default \
+    -e 'DATABASE_URL=postgres://capacity:capacity@db:5432/capacity?sslmode=disable' \
+    -p 8081:8080 capacity-api-<issue>
+  curl -s localhost:8081/api/health
+  ```
+
+  Stop it with `docker rm -f capacity-api-<issue>` when you are done.
+- **Frontend agent: your web on :3001** (from `web/`, after `npm ci`):
+  - against the API on `main`: `npx vite --port 3001`
+  - against the backend agent's API: `API_URL=http://localhost:8081 npx vite --port 3001`
+  - against mocks: `VITE_API_MOCK=true npx vite --port 3001`
+- If a port is taken, use the next one (8082, 3002) and say which in your report.
+- Database shell: `docker exec -it capacity-grid-assignment-db-1 psql -U capacity -d capacity`. Read-only queries
+  only.
+- If the shared stack is not running, ask the human to start it.
 
 ## Toolchain And Checks
 
@@ -141,10 +190,9 @@ for one line, use a targeted disable with a reason.
   `server.use(...)`.
 - `src/api/mocks/handlers.ts` holds the default handlers. The generated ones return random, schema-valid data
   (weeks are not aligned across people). Put realistic hand-written handlers before them; MSW uses the first match.
-- In the browser: `VITE_API_MOCK=true` in `web/.env.local` (git-ignored), then `docker compose restart web`. Or run a
-  second dev server on the host: `cd web && VITE_API_MOCK=true npx vite --port 3001`. The embedded browser in some
-  desktop apps blocks service workers; the app then falls back to the real API and logs an error. Use a regular
-  browser to see mocks.
+- In the browser: `VITE_API_MOCK=true npx vite --port 3001` (see Running It). The embedded browser in some desktop
+  apps blocks service workers; the app then falls back to the real API and logs an error. Use a regular browser to
+  see mocks.
 
 ## Conventions
 
@@ -200,7 +248,8 @@ Not worth writing down: a play-by-play of edits, or a summary of code that alrea
 2. Open the app (or `curl` the API) and read what it actually produces. Do the numbers say what you expect? Building
    without looking is the most common way this task goes wrong.
 3. Append to `.notes/worklog.md` what you decided, assumed or left unfinished.
-4. Report back with the issue's "Done when" items and the evidence for each.
+4. Push your branch and open the PR, with the issue's "Done when" items and the evidence for each.
+5. Stop anything you started (your `capacity-api-<issue>` container, your Vite on :3001).
 
 ## Further Reading
 
