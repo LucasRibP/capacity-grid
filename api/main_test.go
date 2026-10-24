@@ -26,7 +26,10 @@ func TestHandlerValidatesRequestsAgainstContract(t *testing.T) {
 		wantCode, wantMsg          string
 	}{
 		{"capacity without params", http.MethodGet, "/api/capacity", "", http.StatusBadRequest, "validation_failed", ""},
-		{"capacity with bad date", http.MethodGet, "/api/capacity?from=nope&to=2026-01-16", "", http.StatusBadRequest, "validation_failed", ""},
+		{"capacity with bad date", http.MethodGet, "/api/capacity?from=nope&to=2026-01-16", "", http.StatusBadRequest, "validation_failed", "from: must be a date in YYYY-MM-DD format"},
+		{"capacity with impossible date", http.MethodGet, "/api/capacity?from=2026-02-30&to=2026-03-01", "", http.StatusBadRequest, "validation_failed", "from: must be a date in YYYY-MM-DD format"},
+		{"capacity with from after to", http.MethodGet, "/api/capacity?from=2026-01-16&to=2025-12-29", "", http.StatusBadRequest, "validation_failed", "from: must not be after to"},
+		{"capacity over 13 weeks", http.MethodGet, "/api/capacity?from=2026-01-01&to=2026-12-31", "", http.StatusBadRequest, "range_too_large", ""},
 		{"patch above max", http.MethodPatch, "/api/people/1", `{"weeklyHours":500}`, http.StatusBadRequest, "validation_failed", "weeklyHours: number must be at most 168"},
 		{"patch with negative hours", http.MethodPatch, "/api/people/1", `{"weeklyHours":-1}`, http.StatusBadRequest, "validation_failed", ""},
 		{"patch with unknown field", http.MethodPatch, "/api/people/1", `{"weeklyHours":10,"name":"x"}`, http.StatusBadRequest, "validation_failed", ""},
