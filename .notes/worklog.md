@@ -216,3 +216,106 @@ left unfinished. Append as you go; a line or two per entry is right.
   answered `501 not_implemented` for `/api/capacity` (an image older than `main`). The network log still showed one
   `GET /api/capacity?…&q=soren+hag` after typing nine characters, and `q` in the URL. Rows against the real search
   are to be checked once #18 lands.
+
+## Backend: cancel the capacity query when the client goes away (#15)
+
+- **The ctx already reached every pgx call** in `GetCapacity` and `UpdatePerson` (no `context.Background()` outside
+  `run`). That alone did not stop the work in Postgres: pgx's default reaction to a cancelled ctx is to set a past
+  deadline on the socket and drop the connection, and Postgres keeps running the statement until it next writes to
+  the client. The pool now uses `pgconn.CancelRequestContextWatcherHandler`, which sends a cancel request (the
+  deadline stays as a 1 s fallback). Measured on :8081: requests aborted with `curl --max-time 0.01` show
+  `ERROR: canceling statement due to user request` in the db log, one per request; a build of `origin/main` showed none.
+- **Client gone = the request ctx is done**, not "the error is `context.Canceled`". pgx can surface a cancellation as
+  a closed-connection error that wraps neither `Canceled` nor `DeadlineExceeded`; the request ctx is the reliable
+  signal. Cost: a genuine fault that coincides with an abort is not logged. Accepted: nobody would see that response,
+  and the next request hits the same fault. There is no server-side request timeout today, so `DeadlineExceeded`
+  only comes from the client side through this same path.
+- **Status: 499 with no body, nothing logged.** The client cannot read anything we write, so the only reader is
+  whatever sits in front (access log, proxy metrics). nginx's 499 "client closed request" tells those readers it was
+  not a server failure, where an implicit 200 would look like a success and a 500 like a fault. It is not in the
+  contract on purpose: no client ever receives it.
+- Before (origin/main build, 20 aborted requests): 20 `handler error: read capacity: context canceled` lines.
+  After: no log lines.
+
+## Query plan and scale (#4)
+
+`golangci-lint run ./...` and `golangci-lint fmt --diff` are clean on `main`; nothing to fix.
+
+How it was measured: the real `capacityQuery` text, `PREPARE`d with the parameters Go sends (`$3` = the terms array,
+`$4`/`$5` = `foldFrom`/`foldTo`), then `EXPLAIN (ANALYZE, BUFFERS) EXECUTE` for 2025-12-29 to 2026-03-29 (13 weeks).
+"Scale" is a throwaway `postgres:17` container, deleted afterwards: the seed, plus its first five months copied 22
+weeks earlier (history 2024-12-30 to 2027-01-03, two years), plus five copies of every person with their assignments
+(3,000 people, 973k assignment rows, 93 MB). The laptop was shared with other agents, so times vary by ±30%; the
+shapes and ratios are what to read. The shared database was only read.
+
+### What the plan shows today (seed: 500 people, 126k rows)
+
+| `q` | Execution (custom plan) | of which JIT | without JIT |
+|---|---|---|---|
+| none | 265 to 305 ms | 225 to 260 ms | 35 to 41 ms |
+| `ana` | 13 ms | none | 13 ms |
+| `soren hag` | 10 ms | none | 10 ms |
+
+- **JIT is most of the cost.** `generate_series(date, date, interval)` has no row estimate support, so `weeks` is
+  planned as 1,000 rows instead of 13. The people × weeks join is then estimated at 500,000 rows and the plan at
+  ~1.1M cost, above `jit_optimize_above_cost` (500k): Postgres compiles 64 functions with inlining and optimisation
+  (~250 ms) to run a query whose work takes 35 ms.
+- **The plan cache spreads it to searches.** pgx prepares the statement per connection. After five executions
+  Postgres compares the generic plan (527k estimated cost) with the custom ones (1.1M) and keeps the generic one,
+  which also misestimates and also JITs. From then on every request on that connection pays ~220 ms, searches
+  included: in psql, six runs without `q` and then `soren hag` took 225 ms instead of 10 ms; through the API (:8082
+  on `main`), `q=soren hag` takes 210 to 230 ms after a few unfiltered requests and 12 ms on a fresh container.
+- Without JIT (no `q`): `folded` + `matched` 9 ms, `allocated` 16 ms (13 index scans on
+  `assignments (start_date, end_date)`, one per week, 33,630 assignment-week pairs, a `HashAggregate` to 2,240
+  groups), the people × weeks nested loop, hash left join and final sort ~8 ms. Everything is shared-buffer hits.
+- **`matched` does work when there is no `q`.** It is a nested loop over `folded` against itself: for each of the
+  500 names it rescans the whole materialised `folded` CTE looking for `src = 'term'` rows (250,000 rows filtered to
+  find none). Harmless at 500 people, quadratic in the roster.
+
+### At production scale (3,000 people, two years)
+
+| Variant | no `q` | `ana` | `soren hag` |
+|---|---|---|---|
+| query on `main` | 800 to 1,050 ms (450 without JIT) | 360 to 500 ms | 300 ms |
+| integer week series (estimate exact) | 530 to 580 ms | 320 to 350 ms | |
+| + terms in their own `MATERIALIZED` CTE | 190 to 330 ms (135 to 145 without JIT) | 33 to 46 ms | 15 ms |
+| + first 100 people only (`LIMIT 100` in `searched`) | 20 to 27 ms | | |
+
+Through the API on the scale database: 0.5 s per unfiltered request, 2,736,569 bytes plain and 53,451 gzipped
+(synthetic names repeat six times, so real names compress worse: expect the ~150 KB estimated in #14); `q=ana` 0.42 s.
+
+- **The bottleneck is the self-join in `matched`, then the misestimate.** At 3,000 people `matched` is 317 ms with no
+  `q` (3,000 rescans of a 3,000-row CTE). Moving the terms into their own small `MATERIALIZED` CTE keeps the single
+  normalisation and makes it people × terms: 11 ms. Writing the week series as
+  `$1::date + 7 * i FROM generate_series(0, ($2::date - $1::date) / 7) i` gives an exact estimate (13 rows, 6,500 /
+  39,000 output rows), keeps the planner on custom plans and drops the JIT compile on the seed (28 ms instead of 265).
+  Both are SQL changes in `api/capacity.go`, out of scope for #4: reported, not made. Setting `jit = off` on the pool
+  would also work, but fixing the estimate fixes the cause and keeps the costs honest for other plan choices.
+- **Indexes: none needed for this data.** The schema's `(start_date, end_date)` btree already serves the scan: the
+  isolated range scan is a 2.5 ms index-only scan, and per week it reads 15,522 rows at scale in ~2 ms. With `q`, the
+  planner uses `assignments (person_id)` for the matching people. Added in the throwaway database, neither
+  `(person_id, start_date, end_date)` nor a GiST index on `daterange(start_date, end_date, '[]')` (with the predicate
+  rewritten to `&&` so it can be used) changed the time beyond noise; the composite one was not even chosen. The
+  reason: assignments here are at most 14 days long, so the leading `start_date <= to` bound plus the `end_date`
+  filter inside the index stays tight. If production has long assignments (months), `end_date >= from` stops being
+  selective in a btree led by `start_date`, and the GiST range index (with the `&&` predicate) is the one to add.
+  The composite index helps only if a page of people is fetched by id, where it turns each person's lookup into one
+  range read.
+- **The remaining cost is people × weeks, not the scan.** At scale, without JIT: expanding 135k assignments into
+  201,780 assignment-week pairs and aggregating them to 13,440 groups ~100 ms; the people × weeks join (39,000 rows)
+  and the final sort ~40 ms; then Go builds and encodes 2.7 MB of JSON. All of that is linear in people × weeks, which
+  is why the 13-week cap matters and why the next lever is the number of people per request.
+- **People pagination or windowing.** The grid virtualises rows (#8), so the browser renders only what is visible
+  but still downloads and holds all of them. Limiting the query to the first 100 people of the same order took it to
+  ~21 ms at scale (assignments of those people via `assignments_person_id_idx`). A keyset cursor on
+  `(rank, name, id)` would keep pages stable while people are added; `rank` only exists when `q` is set, so without
+  search the cursor is `(name, id)`. It needs a contract change (`limit`, `cursor`, a `nextCursor` in the response)
+  and an infinite query on the web, which is why it stays deferred. Up to a few thousand people the full list stays
+  acceptable once the two SQL fixes are in (~150 to 300 ms, ~150 KB gzipped).
+- **Search.** With the `matched` fix, search is 15 to 45 ms at 3,000 people and linear in names; it stays a
+  sequential scan of `people` (milliseconds). `pg_trgm` + `unaccent` with a GIN index on the folded name ("Search"
+  above) would make it index-backed and typo-tolerant, but it needs a schema change and is not what limits latency
+  at this size.
+- **JSON size is not the bottleneck on the wire** thanks to gzip (17x on the seed, 50x on the synthetic data). It is
+  CPU and memory on both ends: ~2.7 MB to encode in Go and parse in the browser per request at 3,000 people, which is
+  another argument for paging rather than for a denser format.
