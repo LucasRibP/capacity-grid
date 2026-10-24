@@ -57,7 +57,7 @@ export function GridTable({ grid, busy }: Props) {
                 scope="col"
                 className="sticky top-0 z-20 w-28 border-b bg-background px-1 py-2 text-center font-medium whitespace-nowrap"
               >
-                <span className="sr-only">Week of </span>
+                <span className="sr-only">Week of</span>{' '}
                 {formatDay(week, i === 0 || yearOf(week) !== yearOf(grid.weeks[i - 1] ?? week))}
               </th>
             ))}

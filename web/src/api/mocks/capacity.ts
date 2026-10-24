@@ -1,10 +1,9 @@
 import { delay, http, HttpResponse } from 'msw'
 
+import { MAX_WEEKS } from '@/capacity/range'
 import { endOfIsoWeek, isIsoDate, startOfIsoWeek, weekStartsBetween } from '@/lib/dates'
 
 import type { CapacityGrid, Error as ApiErrorBody, PersonCapacity } from '../generated/model'
-
-export const MAX_WEEKS = 13
 
 // Shaped like the seed: shared first names, non-ASCII letters, one person with 0 weekly hours.
 export const mockPeople: { id: number; name: string; weeklyHours: number }[] = [
