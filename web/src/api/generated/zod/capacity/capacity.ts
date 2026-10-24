@@ -18,9 +18,14 @@ import * as zod from 'zod';
  * At most 13 weeks per request (a quarter); larger ranges are rejected with 400 range_too_large.
  * @summary Allocated hours and capacity per person per week
  */
+export const getCapacityQueryQMax = 100;
+
+
+
 export const GetCapacityQueryParams = zod.object({
   "from": zod.iso.date().describe('First day of the range (inclusive), YYYY-MM-DD.'),
-  "to": zod.iso.date().describe('Last day of the range (inclusive), YYYY-MM-DD. Must not be before `from`.')
+  "to": zod.iso.date().describe('Last day of the range (inclusive), YYYY-MM-DD. Must not be before `from`.'),
+  "q": zod.string().max(getCapacityQueryQMax).optional().describe('Name search. Trimmed; blank means no filter. Case- and accent-insensitive (ø → o, þ → th, …).\nSplit on whitespace; every term must appear somewhere in the name, in any order. No typo tolerance.\nWith a search, people are ordered by relevance (terms matching the start of a word first), then name,\nthen id; `people` may be empty.\n')
 })
 
 export const GetCapacityResponse = zod.object({
@@ -36,6 +41,6 @@ export const GetCapacityResponse = zod.object({
   "allocatedHours": zod.number().describe('Sum of hours_per_day over the weekdays (Mon-Fri) of this week covered by assignments.'),
   "capacityHours": zod.number().describe('Capacity for this week. Equals weeklyHours today (there is no capacity history).')
 })).describe('Exactly one entry per CapacityGrid.weeks item, in the same order.')
-})).describe('Every person, ordered by name then id, including people with no allocation.')
+})).describe('Every person matching `q` (everyone without `q`), including people with no allocation. Ordered by name\nthen id, or by relevance first when `q` is given.\n')
 })
 

@@ -19,4 +19,12 @@ from: string;
  * Last day of the range (inclusive), YYYY-MM-DD. Must not be before `from`.
  */
 to: string;
+/**
+ * Name search. Trimmed; blank means no filter. Case- and accent-insensitive (ø → o, þ → th, …).
+ * Split on whitespace; every term must appear somewhere in the name, in any order. No typo tolerance.
+ * With a search, people are ordered by relevance (terms matching the start of a word first), then name,
+ * then id; `people` may be empty.
+ * @maxLength 100
+ */
+q?: string;
 };
