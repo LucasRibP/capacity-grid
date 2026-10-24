@@ -1,5 +1,5 @@
-import { useVirtualizer } from '@tanstack/react-virtual'
-import { useRef } from 'react'
+import { defaultRangeExtractor, useVirtualizer, type Range } from '@tanstack/react-virtual'
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
 
 import type { CapacityGrid } from '@/api/generated/model'
 import { formatDay, yearOf } from '@/lib/dates'
@@ -16,18 +16,41 @@ type Props = {
 }
 
 // Production has a few thousand people: only the rows in view are rendered. The header row and the name column
-// stay put while scrolling either way.
+// stay put while scrolling either way. A row whose weekly hours editor is open stays mounted out of view too, so a
+// save in flight, its error and the typed value are still there when the manager scrolls back.
 export function GridTable({ grid, busy }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [editing, setEditing] = useState<ReadonlySet<number>>(() => new Set())
+  const editingRows = useMemo(
+    () => grid.people.flatMap((person, index) => (editing.has(person.id) ? [index] : [])),
+    [grid.people, editing],
+  )
+  const rangeExtractor = useCallback(
+    (range: Range) => {
+      const inView = defaultRangeExtractor(range)
+      if (editingRows.length === 0) return inView
+      return [...new Set([...inView, ...editingRows])].sort((a, b) => a - b)
+    },
+    [editingRows],
+  )
+  const setRowEditing = useCallback((personId: number, open: boolean) => {
+    setEditing((current) => {
+      if (current.has(personId) === open) return current
+      const next = new Set(current)
+      if (open) next.add(personId)
+      else next.delete(personId)
+      return next
+    })
+  }, [])
   // eslint-disable-next-line react-hooks/incompatible-library -- the virtualizer is read during render by design
   const virtualizer = useVirtualizer({
     count: grid.people.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
+    rangeExtractor,
   })
   const rows = virtualizer.getVirtualItems()
-  const padTop = rows[0]?.start ?? 0
   const padBottom = virtualizer.getTotalSize() - (rows.at(-1)?.end ?? 0)
 
   return (
@@ -64,31 +87,38 @@ export function GridTable({ grid, busy }: Props) {
           </tr>
         </thead>
         <tbody>
-          {padTop > 0 && <tr aria-hidden style={{ height: padTop }} />}
-          {rows.map((row) => {
+          {rows.map((row, i) => {
             const person = grid.people[row.index]
             if (!person) return null
+            // Rows kept for an open editor are not next to the ones in view: a spacer holds each gap.
+            const gap = row.start - (rows[i - 1]?.end ?? 0)
             return (
-              <tr key={person.id} aria-rowindex={row.index + 2} style={{ height: ROW_HEIGHT }}>
-                <th
-                  scope="row"
-                  className="sticky left-0 z-10 border-b bg-background px-3 text-left font-normal"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="truncate font-medium">{person.name}</span>
-                    <WeeklyHoursEditor
-                      personId={person.id}
-                      name={person.name}
-                      weeklyHours={person.weeklyHours}
-                    />
-                  </div>
-                </th>
-                {person.weeks.map((week) => (
-                  <td key={week.weekStart} className="border-b px-1">
-                    <WeekCell allocatedHours={week.allocatedHours} capacityHours={week.capacityHours} />
-                  </td>
-                ))}
-              </tr>
+              <Fragment key={person.id}>
+                {gap > 0 && <tr aria-hidden style={{ height: gap }} />}
+                <tr aria-rowindex={row.index + 2} style={{ height: ROW_HEIGHT }}>
+                  <th
+                    scope="row"
+                    className="sticky left-0 z-10 border-b bg-background px-3 text-left font-normal"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate font-medium">{person.name}</span>
+                      <WeeklyHoursEditor
+                        personId={person.id}
+                        name={person.name}
+                        weeklyHours={person.weeklyHours}
+                        onOpenChange={(open) => {
+                          setRowEditing(person.id, open)
+                        }}
+                      />
+                    </div>
+                  </th>
+                  {person.weeks.map((week) => (
+                    <td key={week.weekStart} className="border-b px-1">
+                      <WeekCell allocatedHours={week.allocatedHours} capacityHours={week.capacityHours} />
+                    </td>
+                  ))}
+                </tr>
+              </Fragment>
             )
           })}
           {padBottom > 0 && <tr aria-hidden style={{ height: padBottom }} />}

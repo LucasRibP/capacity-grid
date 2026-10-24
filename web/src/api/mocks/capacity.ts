@@ -17,6 +17,7 @@ export const mockPeople: { id: number; name: string; weeklyHours: number }[] = [
   { id: 8, name: 'Mei Chen', weeklyHours: 36 },
   { id: 9, name: 'Olu Adeyemi', weeklyHours: 40 },
   { id: 10, name: 'Søren Dahl', weeklyHours: 20 },
+  { id: 11, name: 'Søren Hagen', weeklyHours: 40 },
 ]
 
 // Deterministic per person and week, so the grid looks the same on every reload.
@@ -31,9 +32,44 @@ function errorResponse(status: number, body: ApiErrorBody) {
   return HttpResponse.json(body, { status })
 }
 
-export function buildCapacityGrid(from: string, to: string): CapacityGrid {
+// Letters NFD does not split into a base letter and an accent. A rough copy of the API's hand-written map.
+const FOLDED: Record<string, string> = { ø: 'o', þ: 'th', ð: 'd', æ: 'ae', œ: 'oe', ß: 'ss', ł: 'l', đ: 'd' }
+
+function fold(text: string) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[øþðæœßłđ]/g, (char) => FOLDED[char] ?? char)
+}
+
+/**
+ * The contract's `q`, roughly: case- and accent-insensitive, every whitespace-separated term a substring of the
+ * name, people with more terms matching the start of a word first, then name, then id.
+ */
+export function searchPeople<P extends { id: number; name: string }>(people: P[], q: string): P[] {
+  const terms = fold(q).split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return people
+  return people
+    .map((person) => {
+      const name = fold(person.name)
+      const words = name.split(/\s+/)
+      const wordStarts = terms.filter((term) => words.some((word) => word.startsWith(term))).length
+      return { person, name, wordStarts }
+    })
+    .filter(({ name }) => terms.every((term) => name.includes(term)))
+    .sort(
+      (a, b) =>
+        b.wordStarts - a.wordStarts ||
+        a.person.name.localeCompare(b.person.name) ||
+        a.person.id - b.person.id,
+    )
+    .map(({ person }) => person)
+}
+
+export function buildCapacityGrid(from: string, to: string, q = ''): CapacityGrid {
   const weeks = weekStartsBetween(from, to)
-  const people: PersonCapacity[] = mockPeople.map((person) => ({
+  const people: PersonCapacity[] = searchPeople(mockPeople, q).map((person) => ({
     ...person,
     weeks: weeks.map((weekStart) => ({
       weekStart,
@@ -59,5 +95,5 @@ export const capacityHandler = http.get('*/capacity', async ({ request }) => {
   if (weekStartsBetween(from, to).length > MAX_WEEKS) {
     return errorResponse(400, { code: 'range_too_large', message: 'Pick a range of 13 weeks or fewer.' })
   }
-  return HttpResponse.json(buildCapacityGrid(from, to))
+  return HttpResponse.json(buildCapacityGrid(from, to, params.get('q') ?? ''))
 })
